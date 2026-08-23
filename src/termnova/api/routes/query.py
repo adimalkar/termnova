@@ -43,11 +43,14 @@ async def ask_question(
                 query_text=payload.query,
                 conversation_id=payload.conversation_id,
                 top_k=payload.top_k,
+                document_ids=payload.document_ids,
             )
         )
 
-    # Check cache if available
-    cache_key = f"query_cache:{hash(payload.query.strip().lower())}"
+    # Check cache if available. Scope must be part of the key or a one-contract
+    # ask would be served an answer from the whole book.
+    scope = ",".join(sorted(str(i) for i in (payload.document_ids or [])))
+    cache_key = f"query_cache:{hash(payload.query.strip().lower())}:{scope}"
     if redis_client is not None:
         try:
             cached = await redis_client.get(cache_key)
@@ -62,6 +65,7 @@ async def ask_question(
         query_text=payload.query,
         conversation_id=payload.conversation_id,
         top_k=payload.top_k,
+        document_ids=payload.document_ids,
     )
 
     citations_resp = [

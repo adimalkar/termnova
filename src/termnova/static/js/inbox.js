@@ -193,10 +193,9 @@ class InboxApp {
 
         if (!items || items.length === 0) {
             feedContainer.innerHTML = `
-                <div style="text-align: center; padding: 3rem 1rem; color: #64748b; background: rgba(30,41,59,0.3); border-radius: 12px; border: 1px dashed rgba(255,255,255,0.1);">
-                    <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">📥</div>
-                    <h3 style="color: #cbd5e1; margin-bottom: 0.25rem;">No Contracts in this View</h3>
-                    <p style="font-size: 0.85rem;">Upload new contract documents or change your filters.</p>
+                <div class="empty-state" style="text-align: center; padding: 3rem 1rem; border: 1px dashed var(--rule); background: var(--sheet);">
+                    <h3 style="font-family: var(--font-display); color: var(--on-paper); margin-bottom: 0.35rem;">Nothing waiting</h3>
+                    <p style="font-size: 0.9rem; color: var(--on-paper-muted);">Add a contract in Library, or widen the filters.</p>
                 </div>
             `;
             return;
@@ -263,7 +262,7 @@ class InboxApp {
                     </div>
                     <div class="inbox-card-right">
                         <span class="inbox-urgency-pill ${urgencyPillClass}">
-                            ⚡ ${item.urgency_score}/100 Urgency
+                            ${item.urgency_score}/100 how soon
                         </span>
                         <span style="font-size: 0.75rem; color: #64748b;">${timeStr}</span>
                     </div>
@@ -285,7 +284,7 @@ class InboxApp {
                         ${item.inbox_status === 'unreviewed' ? `<button class="inbox-action-btn" onclick="window.inboxApp.acknowledge('${item.document_id}')">👁️ Acknowledge</button>` : ''}
                         <button class="inbox-action-btn" onclick="window.inboxApp.promptAssign('${item.document_id}')">👤 Assign</button>
                         ${item.inbox_status !== 'completed' ? `<button class="inbox-action-btn" onclick="window.inboxApp.complete('${item.document_id}')">✅ Complete</button>` : ''}
-                        <button class="inbox-action-btn" onclick="window.inboxApp.openDetail('${item.document_id}')">🔍 Details</button>
+                        <button class="inbox-action-btn" onclick="window.inboxApp.openDetail('${item.document_id}')">Open</button>
                     </div>
                 </div>
             </div>
@@ -615,5 +614,9 @@ class InboxApp {
 // Global instance
 window.inboxApp = new InboxApp();
 document.addEventListener("DOMContentLoaded", () => {
-    window.inboxApp.init();
+    try {
+        window.inboxApp.init();
+    } catch (err) {
+        console.error("Inbox module failed to start", err);
+    }
 });

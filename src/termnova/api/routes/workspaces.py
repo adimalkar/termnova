@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from termnova.api.dependencies import get_db, get_settings
+from termnova.api.identity import get_desk_actor, resolve_actor_name
 from termnova.api.ws_manager import ws_manager
 from termnova.config import Settings
 from termnova.db.models import Workspace
@@ -73,13 +74,14 @@ def _to_message_response(msg: Any) -> WorkspaceMessageResponse:
 async def create_workspace(
     payload: WorkspaceCreateRequest,
     session: AsyncSession = Depends(get_db),
+    actor: str = Depends(get_desk_actor),
 ) -> WorkspaceResponse:
     """Create a new collaborative workspace scoped to specific documents."""
     service = WorkspaceService(session)
     ws = await service.create_workspace(
         name=payload.name,
         document_scope=payload.document_scope,
-        created_by=payload.created_by,
+        created_by=resolve_actor_name(payload.created_by, actor),
         description=payload.description,
     )
     return _to_workspace_response(
@@ -94,10 +96,13 @@ async def list_workspaces(
         None, description="Optional user name to calculate unread message counts"
     ),
     session: AsyncSession = Depends(get_db),
+    actor: str = Depends(get_desk_actor),
 ) -> list[WorkspaceResponse]:
     """List all active team workspaces with stats and unread counts."""
     service = WorkspaceService(session)
-    items = await service.list_workspaces(user_name=user_name, include_archived=include_archived)
+    items = await service.list_workspaces(
+        user_name=user_name or actor, include_archived=include_archived
+    )
     return [
         _to_workspace_response(
             item["workspace"],
@@ -298,6 +303,7 @@ async def send_workspace_message(
     workspace_id: uuid.UUID,
     payload: MessageCreateRequest,
     session: AsyncSession = Depends(get_db),
+    actor: str = Depends(get_desk_actor),
 ) -> WorkspaceMessageResponse:
     """Send a human message to the workspace feed and broadcast in real-time."""
     service = WorkspaceService(session)
@@ -308,7 +314,7 @@ async def send_workspace_message(
     msg = await service.add_message(
         workspace_id=workspace_id,
         content=payload.content,
-        user_name=payload.user_name,
+        user_name=resolve_actor_name(payload.user_name, actor),
         message_type="human",
         parent_message_id=payload.parent_message_id,
     )
@@ -384,12 +390,15 @@ async def execute_scoped_workspace_query(
     payload: ScopedQueryRequest,
     session: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
+    actor: str = Depends(get_desk_actor),
 ) -> ScopedQueryResponse:
     """Execute natural language AI RAG query scoped to the workspace's contracts."""
     service = WorkspaceService(session)
     ws = await service.get_workspace(workspace_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
+
+    speaker = resolve_actor_name(payload.user_name, actor)
 
     # 1. Broadcast AI thinking state
     await ws_manager.broadcast_to_channel(
@@ -399,7 +408,7 @@ async def execute_scoped_workspace_query(
             "data": {
                 "workspace_id": str(workspace_id),
                 "query": payload.query,
-                "user_name": payload.user_name,
+                "user_name": speaker,
             },
         },
     )
@@ -409,7 +418,7 @@ async def execute_scoped_workspace_query(
     human_msg, ai_msg = await executor.execute_workspace_query(
         workspace=ws,
         query=payload.query,
-        user_name=payload.user_name,
+        user_name=speaker,
         parent_message_id=payload.parent_message_id,
         top_k=payload.top_k,
     )

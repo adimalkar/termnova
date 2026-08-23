@@ -21,6 +21,32 @@ async def test_health_check_endpoint(api_client: AsyncClient):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
+async def test_desk_status_reports_each_tab_independently(api_client: AsyncClient):
+    """Each sidebar tab has its own module probe; a failure in one must not 500 the desk."""
+    resp = await api_client.get(
+        "/api/v1/desk/status", headers={"X-Termnova-Actor": "Pat Counsel"}
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["actor"] == "Pat Counsel"
+    assert data["overall"] in ("healthy", "degraded")
+    ids = {m["id"] for m in data["modules"]}
+    assert ids == {
+        "ask",
+        "inbox",
+        "redline",
+        "family",
+        "rounds",
+        "room",
+        "library",
+        "portfolio",
+        "reliability",
+    }
+    assert all("ready" in m for m in data["modules"])
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
 async def test_document_lifecycle_and_rag_query(api_client: AsyncClient):
     """Verify upload, listing, querying, feedback, and deletion lifecycle."""
     # 1. Upload a synthetic contract

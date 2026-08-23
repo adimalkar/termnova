@@ -6,7 +6,10 @@ const AppState = {
   activeView: 'chat',
   documents: [],
   activeDrawerCitation: null,
+  activeDocumentId: null,
+  activeDocumentName: null,
 };
+window.AppState = AppState;
 
 // ──── Formatting Utilities ────
 function formatContractTitle(filename) {
@@ -47,9 +50,32 @@ function formatMarkdownText(text) {
 window.formatMarkdownText = formatMarkdownText;
 
 // ──── API Fetch Wrapper ────
+const DESK_ACTOR_KEY = 'termnova.actor';
+
+function getDeskActor() {
+  try {
+    const stored = localStorage.getItem(DESK_ACTOR_KEY);
+    if (stored && stored.trim()) return stored.trim().slice(0, 100);
+  } catch (e) {
+    /* private mode */
+  }
+  return 'Counsel';
+}
+
+function setDeskActor(name) {
+  const clean = String(name || 'Counsel').trim().slice(0, 100) || 'Counsel';
+  try {
+    localStorage.setItem(DESK_ACTOR_KEY, clean);
+  } catch (e) {
+    /* ignore */
+  }
+  return clean;
+}
+
 async function apiRequest(endpoint, options = {}) {
   const defaultHeaders = {
     'Content-Type': 'application/json',
+    'X-Termnova-Actor': getDeskActor(),
   };
 
   if (options.body instanceof FormData) {
@@ -68,7 +94,11 @@ async function apiRequest(endpoint, options = {}) {
     const res = await fetch(endpoint, config);
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
-      throw new Error(errJson.detail || `HTTP ${res.status}: ${res.statusText}`);
+      const detail = errJson.detail;
+      const message = typeof detail === 'string'
+        ? detail
+        : (Array.isArray(detail) ? detail.map((d) => d.msg || d).join('; ') : `HTTP ${res.status}: ${res.statusText}`);
+      throw new Error(message);
     }
     if (res.status === 204) return null;
     return await res.json();
@@ -77,6 +107,9 @@ async function apiRequest(endpoint, options = {}) {
     throw err;
   }
 }
+window.apiRequest = apiRequest;
+window.getDeskActor = getDeskActor;
+window.setDeskActor = setDeskActor;
 
 // ──── Toast Notifications ────
 function showToast(message, type = 'info', duration = 3500) {
@@ -108,7 +141,7 @@ function openSourceDrawer(citation) {
 
   if (!drawer) return;
 
-  badge.textContent = `Source ${citation.source_number || 1}`;
+  badge.textContent = `Passage ${citation.source_number || 1}`;
   docTitle.textContent = citation.document_filename || 'Contract Document';
   pageNum.textContent = citation.page_number ? `Page ${citation.page_number}` : 'Page N/A';
   secHeader.textContent = citation.section_header || 'General Section';
@@ -162,83 +195,206 @@ function switchView(viewName) {
   // Update breadcrumb and header title
   const titleMap = {
     chat: {
-      breadcrumb: 'Contract Studio',
-      title: 'Contract Analysis & Q&A',
+      breadcrumb: 'Ask',
+      title: 'Ask the contracts',
+      purpose: 'Every answer names the page it came from. Click a yellow mark to read the clause.',
     },
     workspace: {
-      breadcrumb: 'Team Workspace',
-      title: 'Collaborative RAG & Shared Deal Rooms',
+      breadcrumb: 'Room',
+      title: 'Deal room',
+      purpose: 'Talk with the team, or ask only the contracts attached to this room.',
     },
     inbox: {
-      breadcrumb: 'Contract Inbox',
-      title: 'Automated Contract Intake & Triage Pipeline',
+      breadcrumb: 'Inbox',
+      title: 'What needs a person',
+      purpose: 'New agreements land here, scored by how soon someone should look.',
     },
     graph: {
-      breadcrumb: 'Document Map',
-      title: 'Contract Knowledge Graph & Topology',
+      breadcrumb: 'Family',
+      title: 'How the papers relate',
+      purpose: 'An MSA, its SOWs, amendments, and the parties on the signature block.',
     },
     compare: {
-      breadcrumb: 'Clause Diff',
-      title: 'Clause Redline & Side-by-Side Diff',
+      breadcrumb: 'Redline',
+      title: 'What changed',
+      purpose: 'Red left the page. Blue was added. Yellow is a cited passage.',
     },
     negotiations: {
-      breadcrumb: 'Negotiations',
-      title: 'Negotiation Playbook & Version Redline Diff Tracker',
+      breadcrumb: 'Rounds',
+      title: 'This deal, round by round',
+      purpose: 'Each upload is a round. See what you gave, and whether risk went up.',
     },
     intelligence: {
-      breadcrumb: 'Intelligence',
-      title: 'Portfolio Intelligence & Clause Heatmap Analytics',
+      breadcrumb: 'Portfolio',
+      title: 'The book at a glance',
+      purpose: 'Where the same clause is harsh across vendors, and where the playbook is missing.',
     },
     documents: {
-      breadcrumb: 'Document Vault',
-      title: 'Document Repository & Vector Chunks',
+      breadcrumb: 'Library',
+      title: 'Agreements on the desk',
+      purpose: 'Add a file, then ask it, redline it, or send it to Inbox.',
     },
     analytics: {
-      breadcrumb: 'Observability',
-      title: 'Observability & Safety Intelligence',
+      breadcrumb: 'Reliability',
+      title: 'Can you trust this answer?',
+      purpose: 'How often answers stay on the page, and how long they take. For counsel, not for the cluster.',
     },
   };
 
   const info = titleMap[viewName] || titleMap.chat;
   const breadcrumbEl = document.getElementById('view-breadcrumb');
   const titleEl = document.getElementById('view-title');
+  const purposeEl = document.getElementById('view-purpose');
   const mobilePill = document.getElementById('mobile-view-pill');
   if (breadcrumbEl) breadcrumbEl.textContent = info.breadcrumb;
   if (titleEl) titleEl.textContent = info.title;
+  if (purposeEl) purposeEl.textContent = info.purpose;
   if (mobilePill) mobilePill.textContent = info.breadcrumb;
 
-  // Trigger view-specific data refresh
-  if (viewName === 'workspace' && window.WorkspaceApp) {
-    window.WorkspaceApp.init();
-  } else if (viewName === 'inbox' && window.inboxApp) {
-    window.inboxApp.loadData();
-  } else if (viewName === 'negotiations' && window.NegotiationModule) {
-    window.NegotiationModule.loadTracks();
-  } else if (viewName === 'intelligence' && window.IntelligenceApp) {
-    window.IntelligenceApp.init();
-  } else if (viewName === 'graph' && window.initGraphView) {
-    window.initGraphView();
-  } else if (viewName === 'documents' && window.loadDocumentsList) {
-    window.loadDocumentsList();
-  } else if (viewName === 'analytics' && window.loadAnalyticsData) {
-    window.loadAnalyticsData();
-  } else if (viewName === 'compare' && window.initCompareDropdowns) {
-    window.initCompareDropdowns();
+  document.querySelectorAll('.nav-item').forEach((btn) => {
+    if (btn.dataset.view === viewName) {
+      btn.setAttribute('aria-current', 'page');
+    } else {
+      btn.removeAttribute('aria-current');
+    }
+  });
+
+  const hashMap = {
+    chat: 'ask',
+    inbox: 'inbox',
+    compare: 'redline',
+    graph: 'family',
+    negotiations: 'rounds',
+    workspace: 'room',
+    documents: 'library',
+    intelligence: 'portfolio',
+    analytics: 'reliability',
+  };
+  const nextHash = hashMap[viewName] || viewName;
+  if (window.location.hash.replace('#', '') !== nextHash) {
+    history.replaceState(null, '', `#${nextHash}`);
   }
+
+  const loaders = {
+    workspace: () => {
+      if (!window.WorkspaceApp) throw new Error('Room is not loaded yet. Refresh the page.');
+      return window.WorkspaceApp.init();
+    },
+    inbox: () => {
+      if (!window.inboxApp) throw new Error('Inbox is not loaded yet. Refresh the page.');
+      return window.inboxApp.loadData();
+    },
+    negotiations: () => {
+      if (!window.NegotiationModule) throw new Error('Rounds is not loaded yet. Refresh the page.');
+      return window.NegotiationModule.loadTracks();
+    },
+    intelligence: () => {
+      if (!window.IntelligenceApp) throw new Error('Portfolio is not loaded yet. Refresh the page.');
+      return window.IntelligenceApp.init();
+    },
+    graph: () => {
+      if (!window.initGraphView) throw new Error('Family is not loaded yet. Refresh the page.');
+      return window.initGraphView();
+    },
+    documents: () => {
+      if (!window.loadDocumentsList) throw new Error('Library is not loaded yet. Refresh the page.');
+      return window.loadDocumentsList();
+    },
+    analytics: () => {
+      if (!window.loadAnalyticsData) throw new Error('Reliability is not loaded yet. Refresh the page.');
+      return window.loadAnalyticsData();
+    },
+    compare: () => {
+      if (!window.initCompareDropdowns) throw new Error('Redline is not loaded yet. Refresh the page.');
+      return window.initCompareDropdowns();
+    },
+  };
+
+  const loader = loaders[viewName];
+  if (loader) {
+    Promise.resolve()
+      .then(loader)
+      .catch((err) => {
+        console.error(`Module "${viewName}" failed`, err);
+        showModuleFault(viewName, err);
+      });
+  }
+}
+
+window.switchView = switchView;
+
+function askAboutDocument(docName, docId) {
+  AppState.activeDocumentId = docId || null;
+  AppState.activeDocumentName = docName || null;
+  switchView('chat');
+  updateAskScopeNote();
+  const queryInput = document.getElementById('query-input');
+  if (!queryInput) return;
+  const title = window.formatContractTitle(docName);
+  queryInput.value = `What should I watch in ${title}? Liability caps, termination, and who pays.`;
+  queryInput.dispatchEvent(new Event('input'));
+  queryInput.focus();
+}
+window.askAboutDocument = askAboutDocument;
+window.AppState = AppState;
+
+function updateAskScopeNote() {
+  const note = document.getElementById('ask-scope-note');
+  if (!note) return;
+  if (AppState.activeDocumentId && AppState.activeDocumentName) {
+    const title = window.formatContractTitle(AppState.activeDocumentName);
+    note.hidden = false;
+    note.innerHTML = `Asking <strong>${title}</strong> only. <button type="button" id="btn-clear-ask-scope">Search the whole book</button>`;
+    const clearBtn = document.getElementById('btn-clear-ask-scope');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        AppState.activeDocumentId = null;
+        AppState.activeDocumentName = null;
+        updateAskScopeNote();
+      });
+    }
+  } else {
+    note.hidden = true;
+    note.innerHTML = '';
+  }
+}
+window.updateAskScopeNote = updateAskScopeNote;
+
+function showModuleFault(viewName, err) {
+  const panel = document.getElementById(`view-${viewName}`);
+  if (!panel) return;
+  let host = panel.querySelector('[data-module-body]') || panel.querySelector('.inbox-list-feed, .intelligence-container, .neg-view-container, .documents-container, .analytics-container, .graph-view-panel, .workspace-view-container, .compare-container');
+  if (!host) host = panel;
+  const existing = panel.querySelector('.module-fault');
+  if (existing) existing.remove();
+  const box = document.createElement('div');
+  box.className = 'module-fault';
+  box.innerHTML = `<h3>This tab could not load</h3><p>${String(err.message || err)}. The rest of the desk is still available.</p>`;
+  host.prepend(box);
 }
 
 // ──── System Status Check ────
 async function checkSystemHealth() {
   const label = document.getElementById('system-status-label');
   try {
-    const health = await apiRequest('/health');
-    if (health.status === 'healthy') {
-      label.textContent = `Online • ${health.llm_provider || 'Hybrid'}`;
+    const desk = await apiRequest('/api/v1/desk/status');
+    const down = (desk.modules || []).filter((m) => !m.ready);
+    if (desk.overall === 'healthy') {
+      if (label) label.textContent = 'Desk is ready';
+    } else if (down.length) {
+      if (label) label.textContent = `${down.map((m) => m.label).join(', ')} needs a look`;
     } else {
-      label.textContent = 'Degraded';
+      if (label) label.textContent = 'Desk is slow — try again in a moment';
     }
   } catch (e) {
-    if (label) label.textContent = 'pgvector • Ready';
+    try {
+      const health = await apiRequest('/health');
+      if (label) {
+        label.textContent = health.status === 'healthy' ? 'Desk is ready' : 'Desk is slow — try again in a moment';
+      }
+    } catch (ignored) {
+      if (label) label.textContent = 'Working from cached papers';
+    }
   }
 }
 
@@ -253,7 +409,10 @@ async function updateVaultStats() {
     const studioChunks = document.getElementById('studio-stat-chunks');
 
     if (sidebarPill) sidebarPill.textContent = totalDocs;
-    if (headerScope) headerScope.textContent = `Scope: All Contracts (${totalDocs})`;
+    if (headerScope) {
+      const n = Number(totalDocs) || 0;
+      headerScope.textContent = n === 1 ? '1 agreement in the book' : `${n} agreements in the book`;
+    }
     if (studioDocs) studioDocs.textContent = totalDocs;
 
     let totalChunks = 0;
@@ -272,7 +431,11 @@ async function updateVaultStats() {
 document.addEventListener('DOMContentLoaded', () => {
   // Nav clicks
   document.querySelectorAll('.nav-item').forEach((btn) => {
-    btn.addEventListener('click', () => switchView(btn.dataset.view));
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      const view = btn.dataset.view;
+      if (view) switchView(view);
+    });
   });
 
   // Drawer close button
@@ -287,24 +450,30 @@ document.addEventListener('DOMContentLoaded', () => {
     btnRefresh.addEventListener('click', () => {
       checkSystemHealth();
       updateVaultStats();
-      showToast('Engine telemetry refreshed', 'info');
+      showToast('Desk checked', 'info');
     });
   }
 
-  // Vault item clicks in sidebar
-  document.querySelectorAll('.vault-item').forEach((item) => {
-    item.addEventListener('click', () => {
-      const docName = item.dataset.doc;
-      switchView('chat');
-      const queryInput = document.getElementById('query-input');
-      if (queryInput) {
-        queryInput.value = `Analyze key clauses, liability caps, and termination terms in ${docName}`;
-        queryInput.dispatchEvent(new Event('input'));
-        const form = document.getElementById('chat-form');
-        if (form) form.dispatchEvent(new Event('submit'));
-      }
+  const actorInput = document.getElementById('desk-actor-input');
+  if (actorInput) {
+    actorInput.value = getDeskActor();
+    actorInput.addEventListener('change', () => {
+      const name = setDeskActor(actorInput.value);
+      actorInput.value = name;
+      if (window.WorkspaceApp) window.WorkspaceApp.currentUserName = name;
+      showToast(`Signing as ${name}`, 'info');
     });
-  });
+  }
+
+  const vaultList = document.getElementById('sidebar-vault-list');
+  if (vaultList) {
+    vaultList.addEventListener('click', (event) => {
+      const item = event.target.closest('.vault-item');
+      if (!item) return;
+      event.preventDefault();
+      askAboutDocument(item.dataset.doc, item.dataset.docId);
+    });
+  }
 
   // Connect WebSocket Push Notifications
   if (window.wsClient) {
@@ -312,7 +481,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (msg.event === 'ingestion_progress') {
         const { filename, status } = msg.data || {};
         if (status === 'completed') {
-          showToast(`Ingestion complete: ${filename}`, 'success');
+          showToast(`${filename} is on the desk`, 'success');
           updateVaultStats();
           if (window.loadDocumentsList) window.loadDocumentsList();
         }
@@ -398,8 +567,24 @@ document.addEventListener('DOMContentLoaded', () => {
     documents: 'documents',
     analytics: 'analytics',
     chat: 'chat',
+    ask: 'chat',
+    inbox: 'inbox',
+    rooms: 'workspace',
+    room: 'workspace',
+    redline: 'compare',
+    family: 'graph',
+    rounds: 'negotiations',
+    library: 'documents',
+    portfolio: 'intelligence',
+    reliability: 'analytics',
   };
   if (hash && hashViewMap[hash]) {
     switchView(hashViewMap[hash]);
   }
+
+  window.addEventListener('hashchange', () => {
+    const next = window.location.hash.replace('#', '').toLowerCase();
+    const view = hashViewMap[next];
+    if (view && AppState.activeView !== view) switchView(view);
+  });
 });

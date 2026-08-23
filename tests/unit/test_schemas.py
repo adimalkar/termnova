@@ -38,6 +38,23 @@ def test_query_request_top_k_bounds():
 
 
 @pytest.mark.unit
+def test_query_request_accepts_two_thousand_chars_and_document_scope():
+    """Ask box allows 2000 characters and can pin the question to specific agreements."""
+    long_query = "x" * 2000
+    assert len(long_query) == 2000
+    doc_id = uuid.uuid4()
+    req = QueryRequest(query=long_query, document_ids=[doc_id])
+    assert req.document_ids == [doc_id]
+    assert len(req.query) == 2000
+
+
+@pytest.mark.unit
+def test_query_request_rejects_overlong_query():
+    with pytest.raises(ValidationError):
+        QueryRequest(query="x" * 2001)
+
+
+@pytest.mark.unit
 def test_feedback_request_rating_range():
     """Verify rating is strictly between 1 and 5."""
     q_id = uuid.uuid4()

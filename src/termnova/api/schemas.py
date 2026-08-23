@@ -14,7 +14,7 @@ class QueryRequest(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     query: str = Field(
-        ..., min_length=2, max_length=1000, description="User question or legal prompt"
+        ..., min_length=2, max_length=2000, description="User question or legal prompt"
     )
     conversation_id: uuid.UUID | None = Field(
         default=None, description="Optional conversation session ID"
@@ -23,6 +23,11 @@ class QueryRequest(BaseModel):
         default=10, ge=1, le=50, description="Number of candidate chunks to retrieve"
     )
     stream: bool = Field(default=False, description="Whether to stream response tokens via SSE")
+    document_ids: list[uuid.UUID] | None = Field(
+        default=None,
+        max_length=50,
+        description="If set, retrieve only from these agreements. Omit to search the whole book.",
+    )
 
 
 class CitationResponse(BaseModel):
@@ -31,6 +36,7 @@ class CitationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     source_number: int
+    chunk_id: str | None = None
     document_filename: str
     page_number: int | None = None
     section_header: str | None = None

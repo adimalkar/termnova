@@ -7,7 +7,7 @@ window.loadDocumentsList = async function () {
   const docCountPill = document.getElementById('sidebar-doc-count');
 
   try {
-    const data = await apiRequest('/api/v1/documents');
+    const data = await apiRequest('/api/v1/documents?limit=100');
     AppState.documents = data.documents || [];
 
     if (docCountPill) {
@@ -20,12 +20,12 @@ window.loadDocumentsList = async function () {
       tbody.innerHTML = `
         <tr>
           <td colspan="7" class="empty-state" style="padding: 2.5rem 1rem; text-align: center;">
-            <div style="font-size: 1rem; font-weight: 600; color: #fff; margin-bottom: 0.5rem;">No contracts in repository yet</div>
-            <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1.25rem;">
-              Drag & drop a contract above, or initialize the vault with 60 authentic enterprise agreements (CUAD / SEC EDGAR).
+            <div style="font-size: 1rem; font-weight: 600; color: var(--on-paper); margin-bottom: 0.5rem;">Nothing on the desk yet</div>
+            <div style="font-size: 0.82rem; color: var(--on-paper-muted); margin-bottom: 1.25rem;">
+              Drop a contract above, or load the sample book to try Ask and Redline.
             </div>
             <button class="btn btn-primary btn-sm" id="btn-empty-seed" onclick="window.seedRealContracts()">
-              📥 Ingest 60 Real Enterprise Contracts
+              Load sample agreements
             </button>
           </td>
         </tr>
@@ -52,7 +52,7 @@ window.loadDocumentsList = async function () {
       return `
         <tr>
           <td>
-            <div style="font-weight: 600; color: #fff; line-height: 1.3;">${cleanTitle}</div>
+            <div style="font-weight: 600; color: var(--on-paper); line-height: 1.3;">${cleanTitle}</div>
             <div style="font-size: 0.72rem; color: var(--text-subtle); font-family: var(--font-mono); margin-top: 2px;">${doc.filename}</div>
           </td>
           <td><span class="badge">${doc.file_type.toUpperCase()}</span></td>
@@ -211,13 +211,7 @@ window.renderSidebarVault = function(docs) {
 
   const formatTitle = window.formatContractTitle || ((t) => t);
 
-  // Update header scope text if present
-  const scopeEl = document.querySelector('.header-scope, [id*="scope"]');
-  if (scopeEl) {
-    const iconSpan = scopeEl.querySelector('svg, span');
-    const iconHtml = iconSpan ? iconSpan.outerHTML : '📁';
-    scopeEl.innerHTML = `${iconHtml} Scope: All Contracts (${docs.length})`;
-  }
+  // Header scope is owned by app.js — do not rewrite it here.
 
   vaultList.innerHTML = docs.slice(0, 25).map((d) => {
     const fnLower = (d.filename || '').toLowerCase();
@@ -256,28 +250,13 @@ window.renderSidebarVault = function(docs) {
     const cleanName = formatTitle(d.filename);
 
     return `
-      <div class="vault-item" data-doc-id="${d.id}" data-doc="${d.filename}" title="${d.filename}">
+      <button type="button" class="vault-item" data-doc-id="${d.id}" data-doc="${d.filename}" title="${d.filename}">
         <span class="type-tag ${tagClass}">${tag}</span>
         <span class="vault-item-name">${cleanName}</span>
-      </div>
+      </button>
     `;
   }).join('');
-
-  // Attach click handler to switch to chat / ask AI about this document
-  vaultList.querySelectorAll('.vault-item').forEach((item) => {
-    item.addEventListener('click', () => {
-      const docName = item.getAttribute('data-doc');
-      const input = document.getElementById('chat-input');
-      if (input) {
-        input.value = `Analyze key clauses, liability limits, and termination rights in ${docName}`;
-        input.focus();
-      }
-      if (window.switchView) {
-        window.switchView('chat');
-      }
-    });
-  });
-}
+};
 window.seedRealContracts = async function () {
   const seedBtn = document.getElementById('btn-seed-contracts');
   const emptySeedBtn = document.getElementById('btn-empty-seed');
@@ -287,11 +266,11 @@ window.seedRealContracts = async function () {
     activeBtn.disabled = true;
     activeBtn.innerHTML = '⏳ Ingesting authentic contracts...';
   }
-  showToast('Indexing authentic commercial contract dataset (CUAD/SEC EDGAR)...', 'info');
+  showToast('Loading sample agreements onto the desk…', 'info');
 
   try {
     const res = await apiRequest('/api/v1/documents/seed?limit=60', { method: 'POST' });
-    showToast(res.message || 'Successfully seeded enterprise contracts!', 'success');
+    showToast(res.message || 'Sample agreements are on the desk', 'success');
     await window.loadDocumentsList();
     if (window.loadAnalytics) window.loadAnalytics();
     if (window.loadInboxContracts) window.loadInboxContracts();
@@ -300,7 +279,7 @@ window.seedRealContracts = async function () {
   } finally {
     if (activeBtn) {
       activeBtn.disabled = false;
-      activeBtn.innerHTML = '📥 Ingest 60 Real Contracts';
+      activeBtn.innerHTML = 'Load sample agreements';
     }
   }
 };

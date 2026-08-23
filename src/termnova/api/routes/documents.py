@@ -110,7 +110,7 @@ async def upload_contract(
 @router.get("", response_model=DocumentListResponse)
 async def list_contracts(
     status_filter: str | None = Query(default=None, alias="status"),
-    limit: int = Query(default=50, ge=1, le=100),
+    limit: int = Query(default=100, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     repo: ContractRepository = Depends(get_repository),
 ) -> DocumentListResponse:

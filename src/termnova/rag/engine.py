@@ -51,11 +51,15 @@ class RAGEngine:
         query_text: str,
         conversation_id: uuid.UUID | None = None,
         top_k: int | None = None,
+        document_ids: list[uuid.UUID] | None = None,
     ) -> QueryResult:
         """Execute complete RAG pipeline synchronously (with optional agentic routing)."""
         if self.settings.USE_AGENTIC_RAG:
             return await self.query_agentic(
-                query_text, conversation_id=conversation_id, top_k=top_k
+                query_text,
+                conversation_id=conversation_id,
+                top_k=top_k,
+                document_ids=document_ids,
             )
 
         start_time = time.time()
@@ -68,7 +72,9 @@ class RAGEngine:
         active_query = rewritten_obj.rewritten
 
         # 1. Retrieve Candidate Chunks
-        retrieved = await self.retriever.retrieve(active_query, top_k=top_k)
+        retrieved = await self.retriever.retrieve(
+            active_query, top_k=top_k, document_ids=document_ids
+        )
 
         # Handle zero retrieval case
         if not retrieved:
@@ -195,6 +201,7 @@ class RAGEngine:
         query_text: str,
         conversation_id: uuid.UUID | None = None,
         top_k: int | None = None,
+        document_ids: list[uuid.UUID] | None = None,
     ) -> QueryResult:
         """Execute stateful LangGraph agentic reasoning workflow."""
         from termnova.agents.graph import build_rag_graph
@@ -232,6 +239,8 @@ class RAGEngine:
                 "guardrails": self.guardrails,
                 "rewriter": self.rewriter,
                 "reranker": self.reranker if self.settings.USE_RERANKER else None,
+                "document_ids": document_ids,
+                "top_k": top_k,
             }
         }
 
@@ -301,6 +310,7 @@ class RAGEngine:
         query_text: str,
         conversation_id: uuid.UUID | None = None,
         top_k: int | None = None,
+        document_ids: list[uuid.UUID] | None = None,
     ) -> AsyncGenerator[str, None]:
         """Execute RAG pipeline with Server-Sent Events (SSE) streaming."""
         start_time = time.time()
@@ -309,7 +319,9 @@ class RAGEngine:
         rewritten_obj = await self.rewriter.rewrite(query_text, conversation_history=history)
         active_query = rewritten_obj.rewritten
 
-        retrieved = await self.retriever.retrieve(active_query, top_k=top_k)
+        retrieved = await self.retriever.retrieve(
+            active_query, top_k=top_k, document_ids=document_ids
+        )
         if not retrieved:
             yield f"data: {json.dumps({'event': 'chunk', 'data': 'No relevant contracts found to answer this question.'})}\n\n"
             yield f"data: {json.dumps({'event': 'done', 'query_id': str(uuid.uuid4())})}\n\n"

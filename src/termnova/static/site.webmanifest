@@ -1,11 +1,11 @@
 {
-  "name": "Termnova — Enterprise AI Contract Intelligence",
+  "name": "Termnova",
   "short_name": "Termnova",
-  "description": "Production-grade AI contract intelligence platform with hybrid RAG, contract knowledge graph topology, and semantic clause redlining.",
+  "description": "Read the contract, mark what changed, and ask questions that cite the page.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0B0F19",
-  "theme_color": "#1E40AF",
+  "background_color": "#1c2622",
+  "theme_color": "#1c2622",
   "icons": [
     {
       "src": "/static/assets/favicon.jpg",

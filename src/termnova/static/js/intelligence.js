@@ -25,9 +25,14 @@ const IntelligenceApp = (function () {
     // Initializer
     // ─────────────────────────────────────────────────────────────────────────────
 
+    let eventsBound = false;
+
     async function init() {
-        bindTabs();
-        bindFilters();
+        if (!eventsBound) {
+            bindTabs();
+            bindFilters();
+            eventsBound = true;
+        }
         await loadSummary();
         await loadDocumentsDropdown();
         await switchTab(state.activeTab);
@@ -240,7 +245,7 @@ const IntelligenceApp = (function () {
                             return `<td class="heatmap-cell absent" title="Absent: ${formatCategoryName(c)}">—</td>`;
                         }
                         const riskClass = `risk-${cell.risk_level || 'low'}`;
-                        const icon = cell.risk_level === 'critical' ? '🔴' : cell.risk_level === 'high' ? '⚠️' : cell.risk_level === 'medium' ? '⚡' : '✓';
+                        const icon = cell.risk_level === 'critical' ? 'C' : cell.risk_level === 'high' ? 'H' : cell.risk_level === 'medium' ? 'M' : 'L';
                         const safeExcerpt = (cell.excerpt || '').replace(/"/g, '&quot;');
                         return `
                             <td class="heatmap-cell ${riskClass}"
@@ -677,10 +682,4 @@ const IntelligenceApp = (function () {
     };
 })();
 
-// Auto-initialize when script loads
-document.addEventListener('DOMContentLoaded', () => {
-    // If on dashboard with intelligence view
-    if (document.getElementById('view-intelligence')) {
-        IntelligenceApp.init();
-    }
-});
+window.IntelligenceApp = IntelligenceApp;

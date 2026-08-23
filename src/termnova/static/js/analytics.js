@@ -29,14 +29,14 @@ window.loadAnalyticsData = async function () {
     if (usage.top_queries && usage.top_queries.length > 0) {
       topTbody.innerHTML = usage.top_queries.map((q) => `
         <tr>
-          <td style="font-weight: 500; color: #fff;">${q.query}</td>
+          <td style="font-weight: 500; color: var(--on-paper);">${q.query}</td>
           <td class="text-right"><span class="badge badge-accent">${q.count}</span></td>
         </tr>
       `).join('');
     } else {
       topTbody.innerHTML = `
         <tr>
-          <td colspan="2" class="empty-state">No queries recorded yet. Ask questions in Contract Analysis.</td>
+          <td colspan="2" class="empty-state">No questions yet. Ask something in Ask.</td>
         </tr>
       `;
     }
@@ -66,23 +66,23 @@ function renderQueryVolumeChart(usage) {
 
   const ctx = canvas.getContext('2d');
   const gradient = ctx.createLinearGradient(0, 0, 0, 240);
-  gradient.addColorStop(0, 'rgba(124, 92, 252, 0.4)');
-  gradient.addColorStop(1, 'rgba(124, 92, 252, 0.0)');
+  gradient.addColorStop(0, 'rgba(24, 95, 165, 0.28)');
+  gradient.addColorStop(1, 'rgba(24, 95, 165, 0.0)');
 
   queryVolumeChart = new Chart(ctx, {
     type: 'line',
     data: {
       labels: labels,
       datasets: [{
-        label: 'Inquiries Analyzed',
+        label: 'Questions asked',
         data: counts,
-        borderColor: '#7c5cfc',
+        borderColor: '#185fa5',
         backgroundColor: gradient,
-        borderWidth: 2.5,
-        tension: 0.35,
+        borderWidth: 2,
+        tension: 0.3,
         fill: true,
-        pointBackgroundColor: '#5b8def',
-        pointRadius: 4,
+        pointBackgroundColor: '#185fa5',
+        pointRadius: 3,
       }],
     },
     options: {
@@ -91,22 +91,22 @@ function renderQueryVolumeChart(usage) {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: '#181828',
-          titleColor: '#fff',
-          bodyColor: '#c4b5fd',
-          borderColor: 'rgba(255, 255, 255, 0.1)',
+          backgroundColor: '#1c2622',
+          titleColor: '#ebe8dc',
+          bodyColor: '#ebe8dc',
+          borderColor: 'rgba(235, 232, 220, 0.12)',
           borderWidth: 1,
         },
       },
       scales: {
         x: {
-          grid: { color: 'rgba(255, 255, 255, 0.05)' },
-          ticks: { color: '#8b8b9e', font: { family: 'Inter', size: 11 } },
+          grid: { color: 'rgba(28, 38, 34, 0.08)' },
+          ticks: { color: '#4f5a53', font: { family: 'Atkinson Hyperlegible', size: 11 } },
         },
         y: {
           beginAtZero: true,
-          grid: { color: 'rgba(255, 255, 255, 0.05)' },
-          ticks: { color: '#8b8b9e', font: { family: 'Inter', size: 11 }, precision: 0 },
+          grid: { color: 'rgba(28, 38, 34, 0.08)' },
+          ticks: { color: '#4f5a53', font: { family: 'Atkinson Hyperlegible', size: 11 }, precision: 0 },
         },
       },
     },
@@ -127,14 +127,14 @@ function renderQualityChart(quality) {
   qualityDistChart = new Chart(ctx, {
     type: 'doughnut',
     data: {
-      labels: ['0-50% (Low)', '50-70% (Fair)', '70-90% (Grounded)', '90-100% (High Confidence)'],
+      labels: ['Off the page', 'Thin support', 'Mostly on the page', 'On the page'],
       datasets: [{
         data: [dist['0-50'] || 0, dist['50-70'] || 0, dist['70-90'] || 0, Math.max(1, dist['90-100'] || 0)],
         backgroundColor: [
-          '#ef4444', // Red
-          '#f59e0b', // Amber
-          '#3b82f6', // Blue
-          '#10b981', // Green
+          '#b42318',
+          '#a16207',
+          '#185fa5',
+          '#2f6b45',
         ],
         borderWidth: 0,
       }],
@@ -145,11 +145,11 @@ function renderQualityChart(quality) {
       plugins: {
         legend: {
           position: 'bottom',
-          labels: { color: '#8b8b9e', font: { family: 'Inter', size: 11 }, boxWidth: 12 },
+          labels: { color: '#4f5a53', font: { family: 'Atkinson Hyperlegible', size: 11 }, boxWidth: 12 },
         },
         tooltip: {
-          backgroundColor: '#181828',
-          borderColor: 'rgba(255, 255, 255, 0.1)',
+          backgroundColor: '#1c2622',
+          borderColor: 'rgba(235, 232, 220, 0.12)',
           borderWidth: 1,
         },
       },

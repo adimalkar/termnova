@@ -12,13 +12,14 @@
     pinnedMessages: [],
     scopedDocs: [],
     members: [],
-    currentUserName: "Aditya (Legal)",
+    currentUserName: (window.getDeskActor && window.getDeskActor()) || "Counsel",
     inputMode: "ai", // 'ai' or 'team'
     typingTimer: null,
     availableDocs: [],
+    eventsBound: false,
 
     init() {
-      console.log("Initializing Termnova Workspace App...");
+      this.currentUserName = (window.getDeskActor && window.getDeskActor()) || this.currentUserName;
       this.bindEvents();
       this.fetchAvailableDocuments();
       this.fetchWorkspaces();
@@ -26,6 +27,8 @@
     },
 
     bindEvents() {
+      if (this.eventsBound) return;
+      this.eventsBound = true;
       // Room Search Filter
       const searchInput = document.getElementById("ws-search-input");
       if (searchInput) {
@@ -203,11 +206,11 @@
       if (mode === "ai") {
         modeAiBtn?.classList.add("active");
         modeTeamBtn?.classList.remove("active");
-        if (placeholder) placeholder.placeholder = "Ask AI RAG a question across this workspace's contracts...";
+        if (placeholder) placeholder.placeholder = "Ask only about the contracts in this room";
       } else {
         modeTeamBtn?.classList.add("active");
         modeAiBtn?.classList.remove("active");
-        if (placeholder) placeholder.placeholder = "Message team members in this workspace...";
+        if (placeholder) placeholder.placeholder = "Write to the people in this room";
       }
     },
 
@@ -246,19 +249,16 @@
 
     async fetchWorkspaces() {
       try {
-        const res = await fetch("/api/v1/workspaces/");
-        if (res.ok) {
-          this.workspaces = await res.json();
-          this.renderRoomsList();
+        const actor = encodeURIComponent(this.currentUserName);
+        this.workspaces = await apiRequest(`/api/v1/workspaces/?user_name=${actor}`);
+        this.renderRoomsList();
 
-          // Auto-select first workspace or create default if none exists
-          if (this.workspaces.length > 0) {
-            if (!this.currentWorkspaceId || !this.workspaces.some((w) => w.id === this.currentWorkspaceId)) {
-              this.selectWorkspace(this.workspaces[0].id);
-            }
-          } else {
-            this.createDefaultWorkspace();
+        if (this.workspaces.length > 0) {
+          if (!this.currentWorkspaceId || !this.workspaces.some((w) => w.id === this.currentWorkspaceId)) {
+            this.selectWorkspace(this.workspaces[0].id);
           }
+        } else {
+          this.createDefaultWorkspace();
         }
       } catch (err) {
         console.error("Error fetching workspaces:", err);
@@ -268,22 +268,18 @@
     async createDefaultWorkspace() {
       try {
         const docIds = this.availableDocs.slice(0, 3).map((d) => d.id);
-        const res = await fetch("/api/v1/workspaces/", {
+        const newWs = await apiRequest("/api/v1/workspaces/", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: "General Deal Room",
-            description: "Collaborative RAG analysis across primary vendor contracts",
+            description: "Questions here only search the contracts attached to this room",
             document_scope: docIds,
             created_by: this.currentUserName,
           }),
         });
-        if (res.ok) {
-          const newWs = await res.json();
-          this.workspaces = [newWs];
-          this.renderRoomsList();
-          this.selectWorkspace(newWs.id);
-        }
+        this.workspaces = [newWs];
+        this.renderRoomsList();
+        this.selectWorkspace(newWs.id);
       } catch (e) {
         console.error("Failed creating default workspace:", e);
       }
@@ -431,7 +427,7 @@
     async fetchMessages(workspaceId) {
       const feed = document.getElementById("ws-chat-feed");
       if (feed) {
-        feed.innerHTML = `<div style="text-align:center; padding:2rem; color:#64748b;">Loading workspace chat history...</div>`;
+        feed.innerHTML = `<div class="empty-state" style="text-align:center; padding:2rem;">Loading this room…</div>`;
       }
 
       try {
@@ -451,11 +447,10 @@
 
       if (!this.currentMessages || this.currentMessages.length === 0) {
         feed.innerHTML = `
-          <div style="text-align: center; padding: 3rem 1rem; color: #64748b;">
-            <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">💬</div>
-            <h4 style="color: #94a3b8; margin: 0 0 0.5rem 0;">Shared Team Workspace</h4>
-            <p style="font-size: 0.85rem; max-width: 360px; margin: 0 auto;">
-              Collaborate with your team in real time. Switch to <strong>⚡ Ask AI</strong> to query all attached contracts simultaneously.
+          <div class="empty-state" style="text-align: center; padding: 3rem 1rem;">
+            <h4 style="font-family: var(--font-display); color: var(--on-paper); margin: 0 0 0.5rem 0;">Nothing in this room yet</h4>
+            <p style="font-size: 0.9rem; max-width: 360px; margin: 0 auto; color: var(--on-paper-muted);">
+              Write to the people here, or switch to <strong>Ask the contracts</strong> to search only the files attached to this room.
             </p>
           </div>
         `;
@@ -513,7 +508,7 @@
           <div class="ws-msg-body">
             <div class="ws-msg-meta">
               <span class="ws-msg-author">${this.escapeHtml(author)}</span>
-              ${isAi ? `<span class="ws-ai-badge">Scoped RAG</span>` : ""}
+              ${isAi ? `<span class="ws-ai-badge">From the contracts</span>` : ""}
               <span class="ws-msg-time">${timeStr}</span>
             </div>
             <div class="ws-msg-bubble">
@@ -524,7 +519,7 @@
               ${reactionsHtml}
               <button class="ws-btn-icon-action btn-add-reaction" data-msg-id="${msg.id}" title="Add reaction">😀+</button>
               <button class="ws-btn-icon-action btn-toggle-pin ${msg.is_pinned ? "pinned" : ""}" data-msg-id="${msg.id}" data-pinned="${msg.is_pinned}">
-                ${msg.is_pinned ? "📌 Pinned" : "📌 Pin"}
+                ${msg.is_pinned ? "Pinned" : "Pin"}
               </button>
             </div>
           </div>
@@ -601,7 +596,7 @@
       try {
         const res = await fetch(`/api/v1/workspaces/${this.currentWorkspaceId}/messages/${messageId}`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Termnova-Actor": this.currentUserName },
           body: JSON.stringify({ is_pinned: isPinned }),
         });
         if (res.ok) {
@@ -618,7 +613,7 @@
       try {
         const res = await fetch(`/api/v1/workspaces/${this.currentWorkspaceId}/messages/${messageId}`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Termnova-Actor": this.currentUserName },
           body: JSON.stringify({ reaction: emoji, user_name: this.currentUserName }),
         });
         if (res.ok) {
@@ -652,7 +647,7 @@
       if (!this.pinnedMessages || this.pinnedMessages.length === 0) {
         container.innerHTML = `
           <div style="padding: 1.5rem 0.5rem; text-align: center; color: #64748b; font-size: 0.8rem;">
-            📌 No pinned findings yet.<br>Pin critical clauses from chat.
+            No pinned clauses yet. Pin a passage from the thread so the room does not lose it.
           </div>
         `;
         return;
@@ -663,7 +658,7 @@
           (p) => `
         <div class="ws-pinned-card" id="pinned-${p.id}">
           <div class="ws-pinned-card-top">
-            <span>📌 ${p.message_type === "ai_response" ? "AI Finding" : this.escapeHtml(p.user_name || "Note")}</span>
+            <span>${p.message_type === "ai_response" ? "From the contracts" : this.escapeHtml(p.user_name || "Note")}</span>
             <button class="ws-btn-icon-action" onclick="window.WorkspaceApp.togglePinMessage('${p.id}', false)" title="Unpin">✕</button>
           </div>
           <div class="ws-pinned-snippet">${this.escapeHtml(p.content)}</div>
@@ -707,7 +702,7 @@
         try {
           const res = await fetch(`/api/v1/workspaces/${this.currentWorkspaceId}/query`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "X-Termnova-Actor": this.currentUserName },
             body: JSON.stringify({
               query: content,
               user_name: this.currentUserName,
@@ -732,7 +727,7 @@
         try {
           const res = await fetch(`/api/v1/workspaces/${this.currentWorkspaceId}/messages`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "X-Termnova-Actor": this.currentUserName },
             body: JSON.stringify({
               content: content,
               user_name: this.currentUserName,
@@ -818,7 +813,7 @@
       try {
         const res = await fetch("/api/v1/workspaces/", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Termnova-Actor": this.currentUserName },
           body: JSON.stringify({
             name: name,
             description: desc,
@@ -851,7 +846,7 @@
       try {
         const res = await fetch(`/api/v1/workspaces/${this.currentWorkspaceId}/members`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Termnova-Actor": this.currentUserName },
           body: JSON.stringify({ user_name: userName, role: role }),
         });
 
