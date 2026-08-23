@@ -23,9 +23,7 @@ async def test_health_check_endpoint(api_client: AsyncClient):
 @pytest.mark.asyncio
 async def test_desk_status_reports_each_tab_independently(api_client: AsyncClient):
     """Each sidebar tab has its own module probe; a failure in one must not 500 the desk."""
-    resp = await api_client.get(
-        "/api/v1/desk/status", headers={"X-Termnova-Actor": "Pat Counsel"}
-    )
+    resp = await api_client.get("/api/v1/desk/status", headers={"X-Termnova-Actor": "Pat Counsel"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["actor"] == "Pat Counsel"
