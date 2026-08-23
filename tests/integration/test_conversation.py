@@ -20,6 +20,9 @@ async def test_conversation_creation_and_history(test_session: AsyncSession):
         response_text="Payment is Net 30.",
         conversation_id=conv.id,
     )
+    import asyncio
+
+    await asyncio.sleep(0.01)
     await repo.log_query(
         query_text="What about late fees?",
         response_text="Late fee is 1.5% monthly.",
