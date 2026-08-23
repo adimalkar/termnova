@@ -38,7 +38,7 @@ async def test_webmanifest_endpoint(api_client: AsyncClient):
     assert resp.status_code == 200
     assert "application/manifest+json" in resp.headers.get("content-type", "")
     data = resp.json()
-    assert data["name"] == "Termnova — Enterprise AI Contract Intelligence"
+    assert data["name"] == "Termnova"
     assert data["short_name"] == "Termnova"
     assert data["start_url"] == "/"
 

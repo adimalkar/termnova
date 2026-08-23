@@ -166,6 +166,7 @@ document.addEventListener("DOMContentLoaded", () => {
     navCompare.addEventListener("click", loadDocumentSelectors);
   }
 
-  // Initial load
+  // Initial load — also used when Redline is opened from the sidebar
+  window.initCompareDropdowns = loadDocumentSelectors;
   loadDocumentSelectors();
 });

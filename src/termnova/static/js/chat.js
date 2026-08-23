@@ -2,98 +2,123 @@
  * Termnova — Chat & Grounded Studio Q&A Logic
  */
 
-document.addEventListener('DOMContentLoaded', () => {
-  const chatForm = document.getElementById('chat-form');
-  const queryInput = document.getElementById('query-input');
-  const chatMessages = document.getElementById('chat-messages');
-  const welcomeCard = document.getElementById('welcome-message');
-  const charCounter = document.getElementById('char-counter');
-  const btnClearChat = document.getElementById('btn-clear-chat');
-  const btnSend = document.getElementById('btn-send-query');
+(function bootAsk() {
+  let booted = false;
 
-  let isGenerating = false;
+  function start() {
+    if (booted) return;
+    const chatForm = document.getElementById('chat-form');
+    const queryInput = document.getElementById('query-input');
+    const chatMessages = document.getElementById('chat-messages');
+    const welcomeCard = document.getElementById('welcome-message');
+    const charCounter = document.getElementById('char-counter');
+    const btnClearChat = document.getElementById('btn-clear-chat');
+    const btnSend = document.getElementById('btn-send-query');
 
-  // ──── Auto-resize and char counter ────
-  queryInput.addEventListener('input', () => {
-    queryInput.style.height = 'auto';
-    queryInput.style.height = Math.min(queryInput.scrollHeight, 140) + 'px';
-    charCounter.textContent = `${queryInput.value.length} / 2000`;
-  });
+    if (!chatForm || !queryInput || !chatMessages) return;
+    booted = true;
 
-  // ──── Enter key submit (Shift+Enter for newline) ────
-  queryInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      chatForm.dispatchEvent(new Event('submit'));
-    }
-  });
+    let isGenerating = false;
 
-  // ──── Curated deck and prompt chip clicks ────
-  document.querySelectorAll('.chip, .deck-card').forEach((chip) => {
-    chip.addEventListener('click', () => {
-      const prompt = chip.dataset.prompt;
-      if (!prompt) return;
-      queryInput.value = prompt;
-      queryInput.dispatchEvent(new Event('input'));
-      chatForm.dispatchEvent(new Event('submit'));
+    queryInput.addEventListener('input', () => {
+      queryInput.style.height = 'auto';
+      queryInput.style.height = Math.min(queryInput.scrollHeight, 140) + 'px';
+      if (charCounter) charCounter.textContent = `${queryInput.value.length} / 2000`;
     });
-  });
 
-  // ──── Clear Chat ────
-  if (btnClearChat) {
-    btnClearChat.addEventListener('click', () => {
-      chatMessages.innerHTML = '';
-      if (welcomeCard) {
-        chatMessages.appendChild(welcomeCard);
+    async function submitDeskAsk() {
+      const query = queryInput.value.trim();
+      if (!query || isGenerating) return;
+      if (typeof switchView === 'function') switchView('chat');
+
+      if (welcomeCard && welcomeCard.parentElement === chatMessages) {
+        welcomeCard.remove();
       }
-      showToast('Chat history cleared', 'info');
+
+      appendMessage('user', escapeHtml(query));
+      queryInput.value = '';
+      queryInput.style.height = 'auto';
+      if (charCounter) charCounter.textContent = '0 / 2000';
+      setGeneratingState(true);
+
+      const assistantBubble = appendMessage(
+        'assistant',
+        '<div class="typing-indicator"><span></span><span></span><span></span></div>'
+      );
+
+      try {
+        if (typeof apiRequest !== 'function') {
+          throw new Error('The desk scripts did not finish loading. Hard-refresh the page.');
+        }
+        const payload = { query: query, stream: false };
+        if (window.AppState && AppState.activeDocumentId) {
+          payload.document_ids = [AppState.activeDocumentId];
+        }
+        const response = await apiRequest('/api/v1/query', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        renderAssistantResponse(assistantBubble, response);
+      } catch (err) {
+        assistantBubble.innerHTML = `
+          <div style="color: var(--color-error);">
+            <strong>Could not answer:</strong> ${escapeHtml(err.message || 'The desk could not read that question. Try again, or open the contract in Library.')}
+          </div>
+        `;
+      } finally {
+        setGeneratingState(false);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+    }
+    window.submitDeskAsk = submitDeskAsk;
+
+    queryInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitDeskAsk();
+      }
     });
-  }
 
-  // ──── Form Submit ────
-  chatForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const query = queryInput.value.trim();
-    if (!query || isGenerating) return;
-
-    // Remove welcome card if present
-    if (welcomeCard && welcomeCard.parentElement === chatMessages) {
-      welcomeCard.remove();
-    }
-
-    // Append User Message
-    appendMessage('user', escapeHtml(query));
-    queryInput.value = '';
-    queryInput.style.height = 'auto';
-    charCounter.textContent = '0 / 2000';
-    setGeneratingState(true);
-
-    // Create Assistant Message Placeholder
-    const assistantBubble = appendMessage('assistant', '<div class="typing-indicator"><span></span><span></span><span></span></div>');
-
-    try {
-      const response = await apiRequest('/api/v1/query', {
-        method: 'POST',
-        body: JSON.stringify({ query: query, stream: false }),
+    document.querySelectorAll('#view-chat .chip, #view-chat .deck-card').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        const prompt = chip.dataset.prompt;
+        if (!prompt) return;
+        queryInput.value = prompt;
+        queryInput.dispatchEvent(new Event('input'));
+        submitDeskAsk();
       });
+    });
 
-      renderAssistantResponse(assistantBubble, response);
-    } catch (err) {
-      assistantBubble.innerHTML = `
-        <div style="color: var(--color-error);">
-          <strong>Analysis Error:</strong> ${escapeHtml(err.message || 'Failed to process contract query.')}
-        </div>
-      `;
-    } finally {
-      setGeneratingState(false);
-      chatMessages.scrollTop = chatMessages.scrollHeight;
+    if (btnClearChat) {
+      btnClearChat.addEventListener('click', () => {
+        chatMessages.innerHTML = '';
+        if (welcomeCard) {
+          chatMessages.appendChild(welcomeCard);
+        }
+        if (window.showToast) showToast('Conversation cleared', 'info');
+      });
     }
-  });
+
+    chatForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      submitDeskAsk();
+    });
+
+    if (btnSend) {
+      btnSend.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        submitDeskAsk();
+      });
+    }
 
   function setGeneratingState(generating) {
     isGenerating = generating;
-    btnSend.disabled = generating;
-    btnSend.style.opacity = generating ? '0.6' : '1';
+    if (btnSend) {
+      btnSend.disabled = generating;
+      btnSend.style.opacity = generating ? '0.6' : '1';
+    }
   }
 
   function escapeHtml(text) {
@@ -113,8 +138,8 @@ document.addEventListener('DOMContentLoaded', () => {
     html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
 
     // Section headers
-    html = html.replace(/^### (.*$)/gim, '<h4 style="margin: 10px 0 4px 0; color: #fff;">$1</h4>');
-    html = html.replace(/^## (.*$)/gim, '<h3 style="margin: 12px 0 6px 0; color: #fff;">$1</h3>');
+    html = html.replace(/^### (.*$)/gim, '<h4 style="margin: 10px 0 4px 0; color: var(--on-paper);">$1</h4>');
+    html = html.replace(/^## (.*$)/gim, '<h3 style="margin: 12px 0 6px 0; color: var(--on-paper);">$1</h3>');
 
     // Line breaks
     html = html.replace(/\n\n/g, '<br><br>');
@@ -173,10 +198,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const auditHtml = `
       <div class="audit-meta-row">
-        <span class="audit-tag success">⚡ ${data.latency_ms}ms</span>
-        <span class="audit-tag">🎯 ${confScore}% Confidence</span>
-        <span class="audit-tag">🛡️ ${faithScore}% Entailed</span>
-        ${data.pii_redacted ? '<span class="audit-tag warning">🔒 PII Sanitized</span>' : ''}
+        <span class="audit-tag success">${data.latency_ms} ms</span>
+        <span class="audit-tag">${confScore}% sure</span>
+        <span class="audit-tag">${faithScore}% on the page</span>
+        ${data.pii_redacted ? '<span class="audit-tag warning">Personal data hidden</span>' : ''}
         <button class="btn-icon" style="margin-left: auto; width: 24px; height: 24px;" title="Copy Answer" onclick="navigator.clipboard.writeText(\`${data.answer.replace(/`/g, '\\`')}\`); showToast('Answer copied to clipboard', 'info');">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -212,4 +237,11 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
   }
-});
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
+})();

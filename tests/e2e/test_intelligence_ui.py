@@ -16,7 +16,7 @@ async def test_intelligence_html_and_assets_served(api_client: AsyncClient):
 
     # 1. Navigation item
     assert 'id="nav-intelligence"' in html
-    assert "Portfolio Intelligence" in html
+    assert "Portfolio" in html
 
     # 2. View Panel
     assert 'id="view-intelligence"' in html

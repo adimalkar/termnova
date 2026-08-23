@@ -408,13 +408,10 @@ function selectNode(nodeData) {
   // Wire query in studio button
   if (btnQueryContract) {
     btnQueryContract.onclick = () => {
-      if (window.switchView) window.switchView('chat');
-      const queryInput = document.getElementById('query-input');
-      if (queryInput) {
-        queryInput.value = `Analyze key clauses, liabilities, and obligations in ${nodeData.label}`;
-        queryInput.dispatchEvent(new Event('input'));
-        const form = document.getElementById('chat-form');
-        if (form) form.dispatchEvent(new Event('submit'));
+      if (window.askAboutDocument) {
+        window.askAboutDocument(nodeData.label, nodeData.document_id || nodeData.id);
+      } else if (window.switchView) {
+        window.switchView('chat');
       }
     };
   }
@@ -480,7 +477,7 @@ function renderDocumentStackView(stackData, container) {
       <div class="stack-tree-wrapper">
         <div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
           <div>
-            <h3 style="font-size: 1.1rem; font-weight: 700; color: #fff;">Document Stack: ${rootFilenameEsc}</h3>
+            <h3 style="font-size: 1.1rem; font-weight: 700; color: var(--on-paper);">Stack: ${rootFilenameEsc}</h3>
             <p style="font-size: 0.8rem; color: var(--text-muted);">${stackData.total_descendants} Linked Agreements • Total Value: ${stackData.total_value_usd ? `$${stackData.total_value_usd.toLocaleString()}` : 'N/A'}</p>
           </div>
           <button class="btn btn-secondary btn-sm" onclick="loadGraphData('${encodeURIComponent(root.document_id)}')">

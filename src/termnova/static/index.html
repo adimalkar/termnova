@@ -32,7 +32,7 @@
   <meta name="twitter:image" content="https://termnova.onrender.com/static/assets/favicon.jpg">
 
   <!-- Mobile & PWA Configuration -->
-  <meta name="theme-color" content="#1E40AF">
+  <meta name="theme-color" content="#1c2622">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Termnova">
@@ -45,13 +45,19 @@
   <!-- Typography & Stylesheets -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/styles.css?v=0.3.0">
-  <link rel="stylesheet" href="/static/css/graph.css?v=0.3.0">
-  <link rel="stylesheet" href="/static/css/workspace.css?v=0.3.0">
-  <link rel="stylesheet" href="/static/css/inbox.css?v=0.3.0">
-  <link rel="stylesheet" href="/static/css/negotiation.css?v=0.3.0">
-  <link rel="stylesheet" href="/static/css/intelligence.css?v=0.3.0">
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Newsreader:opsz,wght@16..72,400;16..72,600;16..72,700&family=Red+Hat+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/styles.css?v=0.4.2">
+  <link rel="stylesheet" href="/static/css/graph.css?v=0.4.2">
+  <link rel="stylesheet" href="/static/css/workspace.css?v=0.4.2">
+  <link rel="stylesheet" href="/static/css/inbox.css?v=0.4.2">
+  <link rel="stylesheet" href="/static/css/negotiation.css?v=0.4.2">
+  <link rel="stylesheet" href="/static/css/intelligence.css?v=0.4.2">
+  <link rel="stylesheet" href="/static/css/desk.css?v=0.4.2">
+  <style>
+    @media (prefers-reduced-motion: reduce) {
+      .float-loop, .view-panel.active { animation: none !important; }
+    }
+  </style>
 
   <!-- Schema.org JSON-LD Structured Data for Search Engines -->
   <script type="application/ld+json">
@@ -158,156 +164,143 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 </head>
-<body class="dark-theme">
+<body class="desk-theme">
+  <a class="skip-link" href="#main-desk">Skip to the desk</a>
   <!-- Mobile Backdrop Overlay for Off-Canvas Sidebar -->
   <div class="mobile-backdrop" id="mobile-sidebar-backdrop"></div>
 
   <div class="app-layout">
     
-    <!-- ──── Left Sidebar Navigation ──── -->
-    <aside class="sidebar">
+    <!-- Binder spine: tabs are the work sequence, not product features -->
+    <aside class="sidebar" aria-label="Closing binder">
       <div class="brand">
         <div class="brand-logo">
-          <img src="/static/assets/favicon.jpg" alt="Termnova Logo" class="brand-logo-img">
+          <img src="/static/assets/favicon.jpg" alt="" class="brand-logo-img">
         </div>
         <div class="brand-info">
           <div class="brand-title-row">
-            <h1>Term<span>nova</span></h1>
-            <span class="version-badge">v0.2</span>
+            <p class="brand-name">Term<span>nova</span></p>
           </div>
-          <p class="brand-tagline">AI Contract Intelligence</p>
+          <p class="brand-tagline">Read the contract. Mark what changed.</p>
         </div>
       </div>
 
-      <!-- Main Navigation -->
-      <div class="nav-section-title">WORKSPACE</div>
-      <nav class="nav-menu">
-        <button class="nav-item active" data-view="chat" id="nav-chat">
-          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+      <nav class="nav-menu" aria-label="Primary">
+        <p class="nav-group-label">Today</p>
+        <button class="nav-item" data-view="inbox" id="nav-inbox" aria-label="Inbox, contracts waiting for review">
+          <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline>
+            <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
           </svg>
-          <span>Contract Studio</span>
+          <span>Inbox</span>
+          <span class="doc-count-pill" id="inbox-nav-badge" style="display:none">0</span>
         </button>
 
+        <p class="nav-group-label">This contract</p>
+        <button class="nav-item active" data-view="chat" id="nav-chat">
+          <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span>Ask</span>
+        </button>
+        <button class="nav-item" data-view="compare" id="nav-compare">
+          <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path>
+          </svg>
+          <span>Redline</span>
+        </button>
+        <button class="nav-item" data-view="graph" id="nav-graph">
+          <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="6" cy="6" r="3"></circle>
+            <circle cx="18" cy="18" r="3"></circle>
+            <circle cx="18" cy="6" r="3"></circle>
+            <line x1="8.6" y1="8.6" x2="15.4" y2="15.4"></line>
+            <line x1="15.4" y1="8.6" x2="8.6" y2="8.6"></line>
+          </svg>
+          <span>Family</span>
+        </button>
+
+        <p class="nav-group-label">This deal</p>
+        <button class="nav-item" data-view="negotiations" id="nav-negotiations">
+          <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+          </svg>
+          <span>Rounds</span>
+        </button>
         <button class="nav-item" data-view="workspace" id="nav-workspace">
-          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
             <circle cx="9" cy="7" r="4"></circle>
             <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
             <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
           </svg>
-          <span>Team Workspace</span>
+          <span>Room</span>
         </button>
 
-        <button class="nav-item" data-view="inbox" id="nav-inbox">
-          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline>
-            <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
-          </svg>
-          <span>Contract Inbox</span>
-          <span class="doc-count-pill" id="inbox-nav-badge" style="display:none; background:#f43f5e; color:#fff; font-weight:700;">0</span>
-        </button>
-
-        <button class="nav-item" data-view="graph" id="nav-graph">
-          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="6" cy="6" r="3"></circle>
-            <circle cx="18" cy="18" r="3"></circle>
-            <circle cx="18" cy="6" r="3"></circle>
-            <circle cx="6" cy="18" r="3"></circle>
-            <line x1="8.59" y1="8.59" x2="15.42" y2="15.42"></line>
-            <line x1="8.59" y1="15.42" x2="15.42" y2="8.59"></line>
-          </svg>
-          <span>Document Map</span>
-        </button>
-
-        <button class="nav-item" data-view="compare" id="nav-compare">
-          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="20" x2="18" y2="10"></line>
-            <line x1="12" y1="20" x2="12" y2="4"></line>
-            <line x1="6" y1="20" x2="6" y2="14"></line>
-            <path d="M4 20h16"></path>
-          </svg>
-          <span>Clause Redline & Diff</span>
-        </button>
-
-        <button class="nav-item" data-view="negotiations" id="nav-negotiations">
-          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"></circle>
-            <polyline points="12 6 12 12 14 14"></polyline>
-            <path d="M16 16l4 4"></path>
-          </svg>
-          <span>Negotiation Tracker</span>
-        </button>
-
-        <button class="nav-item" data-view="intelligence" id="nav-intelligence">
-          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path>
-            <path d="M22 12A10 10 0 0 0 12 2v10z"></path>
-          </svg>
-          <span>Portfolio Intelligence</span>
-        </button>
-
+        <p class="nav-group-label">The book</p>
         <button class="nav-item" data-view="documents" id="nav-documents">
-          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
           </svg>
-          <span>Document Vault</span>
+          <span>Library</span>
           <span class="doc-count-pill" id="sidebar-doc-count">0</span>
         </button>
-
-        <button class="nav-item" data-view="analytics" id="nav-analytics">
-          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"></circle>
-            <path d="m4.93 4.93 4.24 4.24"></path>
-            <path d="m14.83 9.17 4.24-4.24"></path>
-            <path d="m14.83 14.83 4.24 4.24"></path>
-            <path d="m9.17 14.83-4.24 4.24"></path>
+        <button class="nav-item" data-view="intelligence" id="nav-intelligence">
+          <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="7" height="7"></rect>
+            <rect x="14" y="3" width="7" height="7"></rect>
+            <rect x="14" y="14" width="7" height="7"></rect>
+            <rect x="3" y="14" width="7" height="7"></rect>
           </svg>
-          <span>Observability & Safety</span>
+          <span>Portfolio</span>
+        </button>
+        <button class="nav-item" data-view="analytics" id="nav-analytics">
+          <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          </svg>
+          <span>Reliability</span>
         </button>
       </nav>
 
-      <!-- Knowledge Base Scope Quick-List -->
-      <div class="nav-section-title" style="margin-top: 1.5rem;">INDEXED VAULT</div>
+      <p class="nav-group-label">Open a sample</p>
       <div class="sidebar-vault-list" id="sidebar-vault-list">
-        <div class="vault-item" data-doc="sample_msa.pdf">
+        <button type="button" class="vault-item" data-doc="sample_msa.pdf">
           <span class="type-tag tag-msa">MSA</span>
-          <span class="vault-item-name">sample_msa.pdf</span>
-        </div>
-        <div class="vault-item" data-doc="sample_sow.pdf">
+          <span class="vault-item-name">Master services</span>
+        </button>
+        <button type="button" class="vault-item" data-doc="sample_sow.pdf">
           <span class="type-tag tag-sow">SOW</span>
-          <span class="vault-item-name">sample_sow.pdf</span>
-        </div>
-        <div class="vault-item" data-doc="sample_nda.pdf">
+          <span class="vault-item-name">Statement of work</span>
+        </button>
+        <button type="button" class="vault-item" data-doc="sample_nda.pdf">
           <span class="type-tag tag-nda">NDA</span>
-          <span class="vault-item-name">sample_nda.pdf</span>
-        </div>
-        <div class="vault-item" data-doc="sample_vendor.pdf">
+          <span class="vault-item-name">Confidentiality</span>
+        </button>
+        <button type="button" class="vault-item" data-doc="sample_vendor.pdf">
           <span class="type-tag tag-vendor">VENDOR</span>
-          <span class="vault-item-name">sample_vendor.pdf</span>
-        </div>
-        <div class="vault-item" data-doc="sample_lease.pdf">
+          <span class="vault-item-name">Vendor terms</span>
+        </button>
+        <button type="button" class="vault-item" data-doc="sample_lease.pdf">
           <span class="type-tag tag-lease">LEASE</span>
-          <span class="vault-item-name">sample_lease.pdf</span>
-        </div>
+          <span class="vault-item-name">Commercial lease</span>
+        </button>
       </div>
 
-      <!-- Footer System Status -->
       <div class="sidebar-footer">
+        <label class="desk-actor">
+          <span>Signing as</span>
+          <input id="desk-actor-input" type="text" maxlength="100" autocomplete="name" aria-label="Your name on rooms and messages">
+        </label>
         <div class="system-status-pill">
-          <span class="status-indicator online"></span>
-          <span class="status-text" id="system-status-label">pgvector • Celery Ready</span>
-        </div>
-        <div class="author-credits">
-          <span>Engineered by <strong>Aditya Malkar</strong></span>
-          <span class="version-tag">Production RAG Architecture</span>
+          <span class="status-indicator online" aria-hidden="true"></span>
+          <span class="status-text" id="system-status-label">Checking the desk…</span>
         </div>
         <div class="sidebar-legal-links">
-          <button class="legal-badge-btn" id="btn-open-disclaimer">⚖️ AI Legal Notice</button>
+          <button class="legal-badge-btn" id="btn-open-disclaimer">Not legal advice</button>
           <div class="legal-sub-links">
             <button class="legal-link-btn" id="btn-open-terms">Terms</button>
-            <span class="dot-sep">•</span>
+            <span class="dot-sep" aria-hidden="true">·</span>
             <button class="legal-link-btn" id="btn-open-privacy">Privacy</button>
           </div>
         </div>
@@ -315,7 +308,7 @@
     </aside>
 
     <!-- ──── Main Application Viewport ──── -->
-    <main class="main-content">
+    <main class="main-content" id="main-desk">
       
       <!-- Mobile Top App Bar (visible <= 1024px) -->
       <div class="mobile-header" id="mobile-header">
@@ -333,171 +326,127 @@
           <span class="mobile-brand-title">Term<span>nova</span></span>
         </div>
         <div class="mobile-header-actions">
-          <span class="mobile-view-pill" id="mobile-view-pill">Studio</span>
+          <span class="mobile-view-pill" id="mobile-view-pill">Ask</span>
         </div>
       </div>
 
-      <!-- Top Header Bar -->
       <header class="top-header">
         <div class="header-left">
           <div class="breadcrumbs">
-            <span class="breadcrumb-item">Termnova</span>
+            <span class="breadcrumb-item">Binder</span>
             <span class="breadcrumb-sep">/</span>
-            <span class="breadcrumb-item active" id="view-breadcrumb">Contract Studio</span>
+            <span class="breadcrumb-item active" id="view-breadcrumb">Ask</span>
           </div>
-          <h2 id="view-title">Contract Analysis & Q&A</h2>
+          <h2 id="view-title">Ask the contracts</h2>
+          <p class="view-purpose" id="view-purpose">Every answer names the page it came from. Click a yellow mark to read the clause.</p>
         </div>
         <div class="header-actions">
-          <div class="scope-pill">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-            </svg>
-            <span id="header-scope-label">Scope: All Contracts (5)</span>
+          <div class="scope-pill" title="How many agreements are in the current book">
+            <span id="header-scope-label">5 agreements in the book</span>
           </div>
-          <div class="engine-badge">
-            <span class="dot"></span>
-            <span>Hybrid RRF (Dense + BM25)</span>
+          <div class="engine-badge" title="Answers only use text from your uploaded contracts">
+            <span class="dot" aria-hidden="true"></span>
+            <span>Cites the page</span>
           </div>
-          <button class="btn btn-secondary btn-sm" id="btn-refresh-status" title="Refresh Engine Telemetry">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="23 4 23 10 17 10"></polyline>
-              <polyline points="1 20 1 14 7 14"></polyline>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-            </svg>
+          <button class="btn btn-secondary btn-sm" id="btn-refresh-status" title="Check whether the desk can reach your contracts">
+            Check desk
           </button>
         </div>
       </header>
 
-      <!-- ──── VIEW 1: CHAT INTERFACE ──── -->
+      <!-- Ask: questions land on the page they came from -->
       <section class="view-panel active" id="view-chat">
         <div class="chat-container">
-          
-          <!-- Message history stream -->
           <div class="chat-messages" id="chat-messages">
-            <!-- Studio Overview State -->
             <div class="welcome-card" id="welcome-message">
-              
-              <div class="studio-header">
-                <div class="studio-badge">
-                  <span class="pulse-dot"></span>
-                  <span>ENTERPRISE CONTRACT INTELLIGENCE</span>
+              <div class="scene ask-scene" data-scene="ask-empty">
+                <div class="layer depth-0" data-depth="0" aria-hidden="true">
+                  <div class="desk-grain"></div>
                 </div>
-                <h3>Grounded Legal Analysis Workbench</h3>
-                <p>Execute multi-contract inquiries with dense semantic retrieval, BM25Okapi keyword matching, LangGraph reasoning graphs, and factual entailment guardrails.</p>
-              </div>
-
-              <!-- Compact Metric Strip -->
-              <div class="studio-metrics-strip">
-                <div class="metric-chip">
-                  <span class="metric-num" id="studio-stat-docs">5</span>
-                  <span class="metric-lbl">Indexed Contracts</span>
+                <div class="layer depth-1" data-depth="1" aria-hidden="true">
+                  <div class="lamp-glow"></div>
                 </div>
-                <div class="metric-chip">
-                  <span class="metric-num" id="studio-stat-chunks">42</span>
-                  <span class="metric-lbl">Semantic Chunks</span>
-                </div>
-                <div class="metric-chip">
-                  <span class="metric-num">k=60</span>
-                  <span class="metric-lbl">RRF Fusion Constant</span>
-                </div>
-                <div class="metric-chip">
-                  <span class="metric-num text-success">100%</span>
-                  <span class="metric-lbl">Entailment Audit</span>
-                </div>
-              </div>
-
-              <!-- Curated Legal Inquiries (2x2 Grid) -->
-              <div class="studio-deck-section">
-                <div class="deck-title">CURATED CONTRACT AUDIT WORKFLOWS</div>
-                <div class="deck-grid">
-                  <div class="deck-card chip" data-prompt="What are the aggregate liability caps, consequential damage exclusions, and indemnity obligations across the agreements?">
-                    <div class="deck-card-icon icon-blue">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                      </svg>
-                    </div>
-                    <div class="deck-card-content">
-                      <h4>Liability & Indemnification</h4>
-                      <p>Analyze liability cap thresholds, exclusions, and indemnity triggers.</p>
-                    </div>
+                <div class="layer depth-2" data-depth="2" aria-hidden="true">
+                  <div class="paper-stack">
+                    <div class="paper-sheet sheet-back"></div>
+                    <div class="paper-sheet sheet-mid"></div>
                   </div>
-
-                  <div class="deck-card chip" data-prompt="What are the invoice payment schedules, Net payment windows, and late fee interest penalties?">
-                    <div class="deck-card-icon icon-emerald">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="2" y="4" width="20" height="16" rx="2"></rect>
-                        <line x1="2" y1="10" x2="22" y2="10"></line>
-                      </svg>
+                </div>
+                <div class="layer depth-3" data-depth="3">
+                  <article class="paper-hero float-loop">
+                    <p class="ask-kicker">On the page</p>
+                    <h3>Ask what the agreement actually says.</h3>
+                    <p class="ask-lede">Type a question the way you would ask counsel at the table. The answer will mark the clause in yellow so you can read the original words, not a paraphrase of the stack.</p>
+                    <div class="ask-ready">
+                      <span><strong id="studio-stat-docs">5</strong> agreements ready</span>
+                      <span><strong id="studio-stat-chunks">42</strong> passages indexed</span>
                     </div>
-                    <div class="deck-card-content">
-                      <h4>Fees & Payment Schedules</h4>
-                      <p>Extract Net terms, milestone invoicing, and late interest rates.</p>
-                    </div>
-                  </div>
-
-                  <div class="deck-card chip" data-prompt="What are the notice periods required for contract non-renewal, expiration, and termination for cause?">
-                    <div class="deck-card-icon icon-amber">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <polyline points="12 6 12 12 14 14"></polyline>
-                      </svg>
-                    </div>
-                    <div class="deck-card-content">
-                      <h4>Termination & Auto-Renewal</h4>
-                      <p>Audit cancellation notice windows, breach cure periods, and survival terms.</p>
-                    </div>
-                  </div>
-
-                  <div class="deck-card chip" data-prompt="Summarize all contracting parties, effective start dates, and dispute jurisdiction across all agreements.">
-                    <div class="deck-card-icon icon-purple">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                        <circle cx="9" cy="7" r="4"></circle>
-                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                      </svg>
-                    </div>
-                    <div class="deck-card-content">
-                      <h4>Scope, Parties & Jurisdiction</h4>
-                      <p>Map signing entities, effective dates, and governing law clauses.</p>
+                  </article>
+                </div>
+                <div class="layer depth-4" data-depth="4">
+                  <div class="studio-deck-section">
+                    <div class="deck-title">Start with a real risk</div>
+                    <div class="deck-grid">
+                      <button type="button" class="deck-card chip" data-prompt="What are the aggregate liability caps, consequential damage exclusions, and indemnity obligations across the agreements?">
+                        <div class="deck-card-content">
+                          <h4>Who pays when something breaks?</h4>
+                          <p>Liability caps, carve-outs, and who indemnifies whom.</p>
+                        </div>
+                      </button>
+                      <button type="button" class="deck-card chip" data-prompt="What are the invoice payment schedules, Net payment windows, and late fee interest penalties?">
+                        <div class="deck-card-content">
+                          <h4>When is the invoice due?</h4>
+                          <p>Net terms, milestones, and late-interest language.</p>
+                        </div>
+                      </button>
+                      <button type="button" class="deck-card chip" data-prompt="What are the notice periods required for contract non-renewal, expiration, and termination for cause?">
+                        <div class="deck-card-content">
+                          <h4>How do we get out?</h4>
+                          <p>Notice windows, auto-renewal, and cure periods.</p>
+                        </div>
+                      </button>
+                      <button type="button" class="deck-card chip" data-prompt="Summarize all contracting parties, effective start dates, and dispute jurisdiction across all agreements.">
+                        <div class="deck-card-content">
+                          <h4>Who signed, and whose law?</h4>
+                          <p>Parties, effective dates, and governing law.</p>
+                        </div>
+                      </button>
                     </div>
                   </div>
                 </div>
               </div>
-
             </div>
           </div>
 
-          <!-- Chat Command Input Bar -->
           <div class="chat-input-wrapper">
-            <form class="chat-form" id="chat-form">
+            <form class="chat-form" id="chat-form" action="#" method="post" novalidate>
               <div class="input-container">
-                <textarea 
-                  id="query-input" 
-                  rows="1" 
-                  placeholder="Ask a question about your uploaded contracts (e.g. 'What is the liability cap and termination notice period in the MSA?')..." 
-                  required
+                <textarea
+                  id="query-input"
+                  rows="1"
+                  maxlength="2000"
+                  placeholder="Ask about a clause — for example, the liability cap in the MSA"
                 ></textarea>
                 <div class="input-controls">
-                  <button type="button" class="btn-icon" id="btn-clear-chat" title="Clear Chat History">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <button type="button" class="btn-icon" id="btn-clear-chat" title="Clear this conversation">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                       <polyline points="3 6 5 6 21 6"></polyline>
                       <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                     </svg>
                   </button>
-                  <button type="submit" class="btn btn-primary" id="btn-send-query">
-                    <span>Analyze</span>
+                  <button type="button" class="btn btn-primary" id="btn-send-query">
+                    <span>Ask</span>
                     <kbd class="key-hint">↵</kbd>
                   </button>
                 </div>
               </div>
+              <p id="ask-scope-note" class="ask-scope-note" hidden></p>
               <div class="input-footer">
-                <span>Grounded RAG with <strong>pgvector + BM25Okapi RRF</strong> • LangGraph Agents • Entailment Guardrails</span>
+                <span>Answers cite the page. This is not legal advice — a lawyer still reviews before you sign.</span>
                 <span id="char-counter">0 / 2000</span>
               </div>
             </form>
           </div>
-
         </div>
       </section>
 
@@ -516,25 +465,25 @@
                     <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
                     <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
                   </svg>
-                  <span>Workspaces</span>
+                  <span>Rooms</span>
                 </h3>
-                <button class="ws-create-btn" id="btn-open-create-room" title="Create new team workspace">
-                  <span>+ Room</span>
+                <button class="ws-create-btn" id="btn-open-create-room" title="Open a room for this deal">
+                  <span>New room</span>
                 </button>
               </div>
               <div class="ws-search-box">
-                <svg class="ws-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg class="ws-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                   <circle cx="11" cy="11" r="8"></circle>
                   <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 </svg>
-                <input type="text" id="ws-search-input" placeholder="Search deal rooms..." autocomplete="off">
+                <input type="text" id="ws-search-input" placeholder="Find a room" autocomplete="off">
               </div>
             </div>
 
             <!-- Rooms List -->
             <div class="ws-rooms-list" id="ws-rooms-list">
               <div style="text-align: center; padding: 2rem 1rem; color: #64748b; font-size: 0.85rem;">
-                Loading collaborative rooms...
+                Loading rooms…
               </div>
             </div>
           </aside>
@@ -544,13 +493,13 @@
             <!-- Room Header -->
             <header class="ws-chat-header">
               <div class="ws-active-title-group">
-                <h2 id="ws-active-title">General Deal Room</h2>
-                <p id="ws-active-desc">Collaborative RAG analysis across primary vendor contracts</p>
+                <h2 id="ws-active-title">General</h2>
+                <p id="ws-active-desc">Questions in this room only search the contracts you attached.</p>
               </div>
               <div class="ws-header-actions">
-                <div class="ws-members-avatar-stack" id="ws-members-stack" title="Team members in room"></div>
-                <button class="ws-action-btn" id="btn-invite-member" title="Invite team member">
-                  <span>+ Member</span>
+                <div class="ws-members-avatar-stack" id="ws-members-stack" title="People in this room"></div>
+                <button class="ws-action-btn" id="btn-invite-member" title="Invite a colleague">
+                  <span>Invite</span>
                 </button>
               </div>
             </header>
@@ -563,14 +512,14 @@
             <!-- Input Area -->
             <div class="ws-input-area">
               <div class="ws-input-mode-toggle">
-                <button type="button" class="ws-mode-pill active ai-mode" id="ws-mode-ai">⚡ Ask AI RAG (Scoped)</button>
-                <button type="button" class="ws-mode-pill" id="ws-mode-team">💬 Team Message</button>
+                <button type="button" class="ws-mode-pill active ai-mode" id="ws-mode-ai">Ask the contracts</button>
+                <button type="button" class="ws-mode-pill" id="ws-mode-team">Message the room</button>
                 <span class="ws-typing-indicator" id="ws-typing-indicator"></span>
               </div>
 
               <form id="ws-chat-form">
                 <div class="ws-input-box">
-                  <textarea id="ws-chat-input" placeholder="Ask AI RAG a question across this workspace's contracts..." rows="1"></textarea>
+                  <textarea id="ws-chat-input" placeholder="Ask only about the contracts in this room" rows="1"></textarea>
                   <button type="submit" class="ws-send-btn" id="btn-ws-send" title="Send message (Enter)">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -586,19 +535,19 @@
           <aside class="ws-pinned-sidebar">
             <div class="ws-pinned-header">
               <h3>
-                <span>📌 Pinned Findings</span>
+                <span>Pinned clauses</span>
               </h3>
             </div>
             
             <div class="ws-pinned-list" id="ws-pinned-list">
               <div style="padding: 1.5rem 0.5rem; text-align: center; color: #64748b; font-size: 0.8rem;">
-                📌 No pinned findings yet.<br>Pin critical clauses from chat.
-              </div>
+              No pinned clauses yet. Pin a passage from the thread so the room does not lose it.
             </div>
+              </div>
 
             <!-- Scoped Document Scope List -->
             <div class="ws-scoped-docs-section">
-              <h4>Scope Agreements</h4>
+              <h4>Contracts in this room</h4>
               <div id="ws-scoped-docs-list">
                 <!-- Dynamically populated -->
               </div>
@@ -616,34 +565,30 @@
           <div class="inbox-stats-grid">
             <div class="inbox-stat-card">
               <div class="inbox-stat-info">
-                <span class="inbox-stat-label">Unreviewed Inbox</span>
+                <span class="inbox-stat-label">Waiting</span>
                 <span class="inbox-stat-val" id="stat-unreviewed-val">0</span>
               </div>
-              <div class="inbox-stat-icon stat-icon-unreviewed">📥</div>
             </div>
 
             <div class="inbox-stat-card">
               <div class="inbox-stat-info">
-                <span class="inbox-stat-label">In Review / Progress</span>
+                <span class="inbox-stat-label">In review</span>
                 <span class="inbox-stat-val" id="stat-progress-val">0</span>
               </div>
-              <div class="inbox-stat-icon stat-icon-progress">⏳</div>
             </div>
 
             <div class="inbox-stat-card">
               <div class="inbox-stat-info">
-                <span class="inbox-stat-label">Urgent Priority (≥75)</span>
+                <span class="inbox-stat-label">Needs attention</span>
                 <span class="inbox-stat-val" id="stat-urgent-val">0</span>
               </div>
-              <div class="inbox-stat-icon stat-icon-urgent">⚡</div>
             </div>
 
             <div class="inbox-stat-card">
               <div class="inbox-stat-info">
-                <span class="inbox-stat-label">Completed Reviews</span>
+                <span class="inbox-stat-label">Signed off</span>
                 <span class="inbox-stat-val" id="stat-completed-val">0</span>
               </div>
-              <div class="inbox-stat-icon stat-icon-completed">✅</div>
             </div>
           </div>
 
@@ -659,8 +604,7 @@
 
             <div class="inbox-controls-group">
               <div class="inbox-search-box">
-                <span class="inbox-search-icon">🔍</span>
-                <input type="text" class="inbox-search-input" id="inbox-search-input" placeholder="Search contracts...">
+                <input type="text" class="inbox-search-input" id="inbox-search-input" placeholder="Find a contract by name or party">
               </div>
 
               <select class="inbox-select" id="inbox-filter-type">
@@ -676,14 +620,14 @@
               </select>
 
               <select class="inbox-select" id="inbox-sort-select">
-                <option value="urgency_desc">Sort: Urgency (High → Low)</option>
-                <option value="urgency_asc">Sort: Urgency (Low → High)</option>
-                <option value="date_desc">Sort: Date (Newest)</option>
-                <option value="date_asc">Sort: Date (Oldest)</option>
+                <option value="urgency_desc">Most urgent first</option>
+                <option value="urgency_asc">Least urgent first</option>
+                <option value="date_desc">Newest first</option>
+                <option value="date_asc">Oldest first</option>
               </select>
 
               <button class="inbox-btn-rules" id="btn-inbox-rules">
-                ⚙️ <span>Routing Rules</span>
+                <span>Who reviews what</span>
               </button>
             </div>
           </div>
@@ -692,8 +636,8 @@
           <div class="inbox-bulk-bar" id="inbox-bulk-bar">
             <span><strong id="bulk-selected-count">0</strong> contracts selected</span>
             <div class="bulk-actions-group">
-              <button class="bulk-btn" id="btn-bulk-assign">👤 Assign Selected</button>
-              <button class="bulk-btn" id="btn-bulk-archive">📦 Archive Selected</button>
+              <button class="bulk-btn" id="btn-bulk-assign">Assign</button>
+              <button class="bulk-btn" id="btn-bulk-archive">Archive</button>
             </div>
           </div>
 
@@ -711,17 +655,17 @@
           <div class="glass-card compare-selector-card">
             <div class="card-header">
               <div>
-                <h3>Side-by-Side Clause Redline & Comparison</h3>
-                <p>Select two indexed agreements to align corresponding clauses via embedding cosine similarity and inspect word-level diffs.</p>
+                <h3>Compare two agreements</h3>
+                <p>Pick a base copy and a marked-up copy. Red is what left the page. Blue is what was added.</p>
               </div>
             </div>
             <div class="selector-grid">
               <div class="select-wrapper">
-                <label for="compare-doc-a">Base Agreement (Document A):</label>
+                <label for="compare-doc-a">Base copy</label>
                 <select id="compare-doc-a" class="custom-select"></select>
               </div>
               <div class="select-wrapper">
-                <label for="compare-doc-b">Target Agreement (Document B):</label>
+                <label for="compare-doc-b">Marked-up copy</label>
                 <select id="compare-doc-b" class="custom-select"></select>
               </div>
               <div class="select-action">
@@ -732,7 +676,7 @@
                     <line x1="12" y1="20" x2="12" y2="4"></line>
                     <line x1="6" y1="20" x2="6" y2="14"></line>
                   </svg>
-                  <span>Execute Redline Alignment</span>
+                  <span>Mark the differences</span>
                 </button>
               </div>
             </div>
@@ -763,14 +707,14 @@
             <!-- Key Differences Banner -->
             <div class="glass-card" style="margin-top: 1.5rem;">
               <div class="card-header">
-                <h4>Material Financial & Timeline Discrepancies</h4>
+                <h4>Money and dates that do not match</h4>
               </div>
               <ul class="key-diffs-list" id="key-diffs-list"></ul>
             </div>
 
             <!-- Clause Alignments List -->
             <div style="margin-top: 1.5rem;">
-              <h4 style="margin-bottom: 1rem;">Clause-by-Clause Alignment & Redline Diffs</h4>
+              <h4>Clause by clause</h4>
               <div id="alignments-list" class="alignments-grid"></div>
             </div>
           </div>
@@ -789,11 +733,11 @@
             <div class="neg-actions-group">
               <button id="btn-neg-new-track" class="btn-neg-primary">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                <span>New Track</span>
+              <span>New track</span>
               </button>
               <button id="btn-neg-upload-version" class="btn-neg-secondary">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                <span>Add Version Round</span>
+              <span>Add this round</span>
               </button>
               <button id="btn-neg-refresh" class="btn-neg-secondary" title="Refresh negotiation data">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
@@ -808,23 +752,23 @@
           <div class="neg-nav-tabs">
             <button class="neg-tab-btn active" data-tab="timeline">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
-              <span>Version Timeline</span>
+              <span>Timeline</span>
             </button>
             <button class="neg-tab-btn" data-tab="concessions">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
-              <span>Concession Ledger</span>
+              <span>What we gave</span>
             </button>
             <button class="neg-tab-btn" data-tab="risk">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
-              <span>Risk Trajectory</span>
+              <span>Risk over rounds</span>
             </button>
             <button class="neg-tab-btn" data-tab="diff">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
-              <span>Clause Diff</span>
+              <span>This round vs last</span>
             </button>
             <button class="neg-tab-btn" data-tab="summary">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-              <span>AI Executive Summary</span>
+              <span>For the partner</span>
             </button>
           </div>
 
@@ -844,43 +788,43 @@
           <!-- Executive Portfolio Summary Cards -->
           <div class="intelligence-summary-banner">
             <div class="intel-stat-card value-card">
-              <span class="intel-stat-label">Total Contracts Indexed</span>
+              <span class="intel-stat-label">Agreements in the book</span>
               <span class="intel-stat-value" id="intel-stat-contracts">0</span>
-              <span class="intel-stat-sub">Across all formats & repositories</span>
+              <span class="intel-stat-sub">Every file currently on the desk</span>
             </div>
             <div class="intel-stat-card value-card">
-              <span class="intel-stat-label">Portfolio Financial Value</span>
+              <span class="intel-stat-label">Named value in the book</span>
               <span class="intel-stat-value" id="intel-stat-val">$0</span>
-              <span class="intel-stat-sub">Combined contract liabilities & fees</span>
+              <span class="intel-stat-sub">Fees and caps the clauses mention</span>
             </div>
             <div class="intel-stat-card risk-card">
-              <span class="intel-stat-label">Average Risk Exposure</span>
+              <span class="intel-stat-label">Average clause risk</span>
               <span class="intel-stat-value" id="intel-stat-risk">0%</span>
-              <span class="intel-stat-sub">Portfolio-wide clause risk index</span>
+              <span class="intel-stat-sub">How far terms sit from your playbook</span>
             </div>
             <div class="intel-stat-card compliance-card">
-              <span class="intel-stat-label">Playbook Compliance</span>
+              <span class="intel-stat-label">Playbook match</span>
               <span class="intel-stat-value" id="intel-stat-compliance">100%</span>
-              <span class="intel-stat-sub">Standard terms adherence</span>
+              <span class="intel-stat-sub">Share of terms that match house standard</span>
             </div>
           </div>
 
           <!-- Sub-Navigation Tabs & Controls -->
           <div class="intelligence-tabs">
             <button class="intel-tab-btn active" data-tab="heatmap">
-              <span>📊 Clause Heatmap Matrix</span>
+              <span>Clause heat</span>
             </button>
             <button class="intel-tab-btn" data-tab="scorecard">
-              <span>🏢 Vendor Scorecards</span>
+              <span>Vendors</span>
             </button>
             <button class="intel-tab-btn" data-tab="benchmark">
-              <span>🎯 Benchmark Scoring</span>
+              <span>Against playbook</span>
             </button>
             <button class="intel-tab-btn" data-tab="trends">
-              <span>📈 Portfolio Trends</span>
+              <span>Over time</span>
             </button>
             <button class="intel-tab-btn" data-tab="gaps">
-              <span>⚠️ Gap Analysis</span>
+              <span>Missing terms</span>
             </button>
           </div>
 
@@ -902,7 +846,7 @@
             </div>
             <div class="intel-filter-group">
               <button class="btn btn-secondary btn-sm" onclick="IntelligenceApp.init()">
-                <span>↻ Refresh Intelligence</span>
+                <span>Refresh the book</span>
               </button>
             </div>
           </div>
@@ -920,7 +864,7 @@
           <!-- Tab Pane 3: Benchmark Scoring -->
           <div id="intel-pane-benchmark" class="intel-tab-pane" style="display: none;">
             <div style="margin-bottom: 1rem; display: flex; align-items: center; gap: 0.75rem;">
-              <label for="benchmark-doc-select" style="font-size: 0.85rem; font-weight: 600; color: #cbd5e1;">Select Agreement to Benchmark:</label>
+              <label for="benchmark-doc-select" style="font-size: 0.85rem; font-weight: 600; color: var(--on-paper-muted);">Agreement to score</label>
               <select id="benchmark-doc-select" class="intel-select" style="min-width: 280px;"></select>
             </div>
             <div id="benchmark-container"></div>
@@ -946,8 +890,8 @@
           <!-- Upload Zone -->
           <div class="glass-card upload-card">
             <div class="card-header">
-              <h3>Upload Enterprise Contracts</h3>
-              <p>Supports PDF, DOCX, and TXT agreements. Files are parsed into structured pages, section headers, and embedded with pgvector.</p>
+              <h3>Bring a contract onto the desk</h3>
+              <p>PDF, Word, or text. We keep the pages, then you can ask, redline, and pin clauses.</p>
             </div>
             
             <div class="drop-zone" id="drop-zone">
@@ -960,8 +904,8 @@
                     <line x1="12" y1="3" x2="12" y2="15"></line>
                   </svg>
                 </div>
-                <h4>Drag & Drop contract files here</h4>
-                <p>or <button type="button" class="btn-link" id="btn-browse-files">browse files</button> from your system (Max 50MB)</p>
+                <h4>Drop the file here</h4>
+                <p>or <button type="button" class="btn-link" id="btn-browse-files">choose from your computer</button> (50 MB max)</p>
                 <div class="format-pills">
                   <span class="badge">PDF</span>
                   <span class="badge">DOCX</span>
@@ -986,17 +930,17 @@
           <div class="glass-card document-list-card">
             <div class="card-header flex-between">
               <div>
-                <h3>Indexed Document Repository</h3>
-                <p>Manage and inspect chunk vectors and metadata</p>
+                <h3>Agreements on the desk</h3>
+                <p>Open one to ask, or send it to Inbox if it still needs a person.</p>
               </div>
               <div style="display: flex; gap: 8px;">
-                <button class="btn btn-secondary btn-sm" id="btn-seed-contracts" title="Ingest authentic commercial contracts dataset">
+                <button class="btn btn-secondary btn-sm" id="btn-seed-contracts" title="Load a sample book of real commercial agreements">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                     <polyline points="7 10 12 15 17 10"></polyline>
                     <line x1="12" y1="15" x2="12" y2="3"></line>
                   </svg>
-                  <span>Ingest 60 Real Contracts</span>
+                  <span>Load sample agreements</span>
                 </button>
                 <button class="btn btn-secondary btn-sm" id="btn-refresh-docs">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1004,7 +948,7 @@
                     <polyline points="1 20 1 14 7 14"></polyline>
                     <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
                   </svg>
-                  <span>Refresh List</span>
+                  <span>Refresh</span>
                 </button>
               </div>
             </div>
@@ -1024,7 +968,7 @@
                 </thead>
                 <tbody id="documents-table-body">
                   <tr>
-                    <td colspan="7" class="empty-state">Loading document repository...</td>
+                    <td colspan="7" class="empty-state">No agreements on the desk yet. Drop a file above.</td>
                   </tr>
                 </tbody>
               </table>
@@ -1042,7 +986,7 @@
           <div class="kpi-grid">
             <div class="kpi-card glass-card">
               <div class="kpi-header">
-                <span class="kpi-title">Total Queries Analyzed</span>
+                <span class="kpi-title">Questions asked</span>
                 <div class="kpi-icon icon-blue">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="10"></circle>
@@ -1059,7 +1003,7 @@
 
             <div class="kpi-card glass-card">
               <div class="kpi-header">
-                <span class="kpi-title">Avg Retrieval Latency</span>
+                <span class="kpi-title">Time to an answer</span>
                 <div class="kpi-icon icon-purple">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
@@ -1068,13 +1012,13 @@
               </div>
               <div class="kpi-value" id="kpi-avg-latency">0 ms</div>
               <div class="kpi-footer">
-                <span>Vector + BM25 Fusion</span>
+                <span>How long the desk took</span>
               </div>
             </div>
 
             <div class="kpi-card glass-card">
               <div class="kpi-header">
-                <span class="kpi-title">Avg Confidence Score</span>
+                <span class="kpi-title">How sure the answer is</span>
                 <div class="kpi-icon icon-green">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
@@ -1084,13 +1028,13 @@
               </div>
               <div class="kpi-value" id="kpi-avg-confidence">0.0%</div>
               <div class="kpi-footer">
-                <span>Multi-factor weighted</span>
+                <span>Weighted from the cited pages</span>
               </div>
             </div>
 
             <div class="kpi-card glass-card">
               <div class="kpi-header">
-                <span class="kpi-title">Faithfulness / Grounding</span>
+                <span class="kpi-title">Stayed on the page</span>
                 <div class="kpi-icon icon-amber">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
@@ -1099,7 +1043,7 @@
               </div>
               <div class="kpi-value" id="kpi-faithfulness">0.0%</div>
               <div class="kpi-footer">
-                <span>Entailment audit score</span>
+                <span>Share of claims found in the contract</span>
               </div>
             </div>
           </div>
@@ -1108,8 +1052,8 @@
           <div class="charts-grid">
             <div class="glass-card chart-card">
               <div class="card-header">
-                <h3>Query Volume & Latency Trend</h3>
-                <p>Daily volume of contract intelligence queries</p>
+                <h3>Questions over time</h3>
+                <p>Volume of asks, and how long they took</p>
               </div>
               <div class="chart-wrapper">
                 <canvas id="chart-query-volume"></canvas>
@@ -1118,8 +1062,8 @@
 
             <div class="glass-card chart-card">
               <div class="card-header">
-                <h3>Faithfulness Score Distribution</h3>
-                <p>Grounding accuracy across analyzed contract answers</p>
+                <h3>Did the answer stay on the page?</h3>
+                <p>Distribution of grounding scores</p>
               </div>
               <div class="chart-wrapper">
                 <canvas id="chart-quality-dist"></canvas>
@@ -1130,8 +1074,8 @@
           <!-- Top Queries Table -->
           <div class="glass-card top-queries-card">
             <div class="card-header">
-              <h3>Top Asked Contract Questions</h3>
-              <p>Frequency distribution of enterprise legal inquiries</p>
+              <h3>What people keep asking</h3>
+              <p>Repeated questions usually mean a clause the book has not settled.</p>
             </div>
             <div class="table-responsive">
               <table class="data-table">
@@ -1169,19 +1113,19 @@
                     <line x1="8.59" y1="8.59" x2="15.42" y2="15.42"></line>
                     <line x1="8.59" y1="15.42" x2="15.42" y2="8.59"></line>
                   </svg>
-                  <span>Force Graph</span>
+                  <span>Map</span>
                 </button>
                 <button class="view-mode-btn" id="btn-mode-stack">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <line x1="3" y1="6" x2="21" y2="6"></line>
                     <line x1="7" y1="12" x2="21" y2="12"></line>
                     <line x1="11" y1="18" x2="21" y2="18"></line>
                   </svg>
-                  <span>Document Stack</span>
+                  <span>Stacks</span>
                 </button>
               </div>
 
-              <input type="text" class="graph-search-input" id="graph-search-input" placeholder="Search contracts or parties...">
+              <input type="text" class="graph-search-input" id="graph-search-input" placeholder="Find a contract or a party">
 
               <div class="filter-group">
                 <span class="filter-pill active pill-msa" data-type="msa">MSA</span>
@@ -1264,7 +1208,7 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
                 </svg>
-                <span>Query Contract in Studio</span>
+                <span>Ask this contract</span>
               </button>
             </div>
           </aside>
@@ -1307,7 +1251,7 @@
     <aside class="source-drawer" id="source-drawer">
       <div class="drawer-header">
         <div class="drawer-title">
-          <span class="badge badge-accent" id="drawer-source-badge">Source 1</span>
+          <span class="badge badge-accent" id="drawer-source-badge">Passage 1</span>
           <h3 id="drawer-doc-title">contract.pdf</h3>
         </div>
         <button class="btn-icon" id="btn-close-drawer" title="Close Drawer">
@@ -1331,7 +1275,7 @@
         </div>
 
         <div class="source-excerpt-box">
-          <label>Original Contract Chunk Text:</label>
+          <label>The words on the page</label>
           <div class="excerpt-content" id="drawer-excerpt-text">
             Contract excerpt will appear here...
           </div>
@@ -1345,8 +1289,7 @@
     <div class="modal-box glass-card">
       <div class="modal-header">
         <div class="modal-title-row">
-          <span class="modal-icon">⚖️</span>
-          <h3>Responsible AI & Legal Disclaimer</h3>
+        <h3>This is not legal advice</h3>
         </div>
         <button class="btn-icon btn-close-modal" data-close="modal-disclaimer">&times;</button>
       </div>
@@ -1359,7 +1302,7 @@
         <p><strong>3. Mandatory Human Review:</strong> Automated language models are statistical in nature and may occasionally misinterpret intricate legal provisions. Always have a qualified, licensed legal professional review all findings before executing binding agreements or waiving legal rights.</p>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-primary btn-close-modal" data-close="modal-disclaimer">I Understand & Acknowledge</button>
+        <button class="btn btn-primary btn-close-modal" data-close="modal-disclaimer">I understand</button>
       </div>
     </div>
   </div>
@@ -1369,8 +1312,7 @@
     <div class="modal-box glass-card">
       <div class="modal-header">
         <div class="modal-title-row">
-          <span class="modal-icon">📜</span>
-          <h3>Terms of Service</h3>
+          <h3>Terms</h3>
         </div>
         <button class="btn-icon btn-close-modal" data-close="modal-terms">&times;</button>
       </div>
@@ -1392,8 +1334,7 @@
     <div class="modal-box glass-card">
       <div class="modal-header">
         <div class="modal-title-row">
-          <span class="modal-icon">🔒</span>
-          <h3>Privacy & Data Protection Policy</h3>
+          <h3>Privacy</h3>
         </div>
         <button class="btn-icon btn-close-modal" data-close="modal-privacy">&times;</button>
       </div>
@@ -1401,7 +1342,7 @@
         <p><strong>1. Zero AI Training Retention:</strong> Your uploaded documents and queries are processed solely to fulfill your requests. Your data is NEVER shared or used to train third-party foundation models.</p>
         <p><strong>2. Automatic PII & Secret Redaction:</strong> Built-in guardrails actively detect and sanitize Social Security Numbers, credit cards, emails, and API keys.</p>
         <p><strong>3. Encryption Standards:</strong> All data is encrypted in transit via TLS 1.3 (HTTPS/WSS) and at rest with vector database partition isolation.</p>
-        <p><strong>4. Right to Deletion:</strong> You can permanently delete any indexed document, vector embeddings, or chat history at any time from the Document Vault.</p>
+        <p><strong>4. Deletion:</strong> You can delete any agreement, its passages, or this conversation from Library.</p>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary btn-close-modal" data-close="modal-privacy">Close</button>
@@ -1413,7 +1354,7 @@
   <div class="ws-modal-backdrop" id="modal-create-workspace" style="display: none;">
     <div class="ws-modal-box">
       <div class="ws-modal-header">
-        <h3>Create Team Workspace</h3>
+        <h3>Open a room</h3>
         <button type="button" class="btn-icon" id="btn-close-create-modal">&times;</button>
       </div>
       <form id="form-create-workspace">
@@ -1426,14 +1367,14 @@
           <textarea id="ws_desc" name="ws_desc" rows="2" placeholder="Brief note on what contracts or deals are in scope..."></textarea>
         </div>
         <div class="ws-form-group">
-          <label>Assign Document Scope (for isolated RAG queries):</label>
+          <label>Contracts this room can ask about</label>
           <div class="ws-doc-checklist" id="ws-doc-checklist-container">
             <!-- Dynamically populated -->
           </div>
         </div>
         <div class="ws-modal-footer">
           <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-create-workspace').style.display='none'">Cancel</button>
-          <button type="submit" class="btn btn-primary">Create Workspace</button>
+          <button type="submit" class="btn btn-primary">Open room</button>
         </div>
       </form>
     </div>
@@ -1484,14 +1425,14 @@
     <div class="modal-box glass-card" style="max-width: 650px; width: 90%;">
       <div class="modal-header">
         <div class="modal-title-row">
-          <span class="modal-icon">⚙️</span>
-          <h3>Automated Contract Routing Rules</h3>
+          <span class="modal-icon" aria-hidden="true"></span>
+          <h3>Who reviews what</h3>
         </div>
         <button class="btn-icon" onclick="window.inboxApp.closeRulesModal()">&times;</button>
       </div>
       <div class="modal-body">
         <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 1rem;">
-          Configure automatic reviewer assignments and priority routing based on contract classification and urgency thresholds.
+        Configure who gets a contract when it arrives, by type and how urgent it is.
         </p>
 
         <!-- Existing Rules List -->
@@ -1545,7 +1486,7 @@
   <div id="neg-create-track-modal" class="neg-modal">
     <div class="neg-modal-content">
       <div class="neg-modal-header">
-        <h3>Create Negotiation Track</h3>
+        <h3>Start a deal track</h3>
         <button class="btn-icon neg-modal-close">&times;</button>
       </div>
       <form id="neg-create-track-form">
@@ -1578,7 +1519,7 @@
         </div>
         <div class="neg-modal-footer">
           <button type="button" class="btn-neg-secondary neg-modal-close">Cancel</button>
-          <button type="submit" class="btn-neg-primary">Create Track</button>
+          <button type="submit" class="btn-neg-primary">Start track</button>
         </div>
       </form>
     </div>
@@ -1588,7 +1529,7 @@
   <div id="neg-upload-version-modal" class="neg-modal">
     <div class="neg-modal-content">
       <div class="neg-modal-header">
-        <h3>Add Version Round</h3>
+        <h3>Add this round</h3>
         <button class="btn-icon neg-modal-close">&times;</button>
       </div>
       <form id="neg-upload-version-form">
@@ -1613,7 +1554,7 @@
         </div>
         <div class="neg-modal-footer">
           <button type="button" class="btn-neg-secondary neg-modal-close">Cancel</button>
-          <button type="submit" class="btn-neg-primary">Upload & Process Round</button>
+          <button type="submit" class="btn-neg-primary">File this round</button>
         </div>
       </form>
     </div>
@@ -1641,16 +1582,18 @@
   <div class="toast-hub" id="toast-hub"></div>
 
   <!-- Scripts -->
-  <script src="/static/js/app.js?v=0.3.0"></script>
-  <script src="/static/js/ws.js?v=0.3.0"></script>
-  <script src="/static/js/chat.js?v=0.3.0"></script>
-  <script src="/static/js/workspace.js?v=0.3.0"></script>
-  <script src="/static/js/inbox.js?v=0.3.0"></script>
-  <script src="/static/js/negotiation.js?v=0.3.0"></script>
-  <script src="/static/js/intelligence.js?v=0.3.0"></script>
-  <script src="/static/js/graph.js?v=0.3.0"></script>
-  <script src="/static/js/compare.js?v=0.3.0"></script>
-  <script src="/static/js/documents.js?v=0.3.0"></script>
-  <script src="/static/js/analytics.js?v=0.3.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script src="/static/js/app.js?v=0.4.2"></script>
+  <script src="/static/js/chat.js?v=0.4.2"></script>
+  <script src="/static/js/ws.js?v=0.4.2"></script>
+  <script src="/static/js/workspace.js?v=0.4.2"></script>
+  <script src="/static/js/inbox.js?v=0.4.2"></script>
+  <script src="/static/js/negotiation.js?v=0.4.2"></script>
+  <script src="/static/js/intelligence.js?v=0.4.2"></script>
+  <script src="/static/js/graph.js?v=0.4.2"></script>
+  <script src="/static/js/compare.js?v=0.4.2"></script>
+  <script src="/static/js/documents.js?v=0.4.2"></script>
+  <script src="/static/js/analytics.js?v=0.4.2"></script>
+  <script src="/static/js/motion.js?v=0.4.2"></script>
 </body>
 </html>

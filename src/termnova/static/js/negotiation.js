@@ -16,6 +16,7 @@ window.NegotiationModule = (function () {
     diffFromVersion: 1,
     diffToVersion: 2,
     isLoading: false,
+    eventsBound: false,
   };
 
   /**
@@ -30,6 +31,8 @@ window.NegotiationModule = (function () {
    * Bind event listeners for controls, tabs, and modals.
    */
   function bindEvents() {
+    if (state.eventsBound) return;
+    state.eventsBound = true;
     // Track selector dropdown
     const trackSelect = document.getElementById('neg-track-select');
     if (trackSelect) {

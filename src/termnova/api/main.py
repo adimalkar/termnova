@@ -14,6 +14,7 @@ from termnova import __version__
 from termnova.api.middleware import setup_middleware
 from termnova.api.routes import (
     analytics_router,
+    desk_router,
     documents_router,
     graph_router,
     health_router,
@@ -93,6 +94,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Mount API Routers
     app.include_router(health_router)
+    app.include_router(desk_router)
     app.include_router(query_router)
     app.include_router(documents_router)
     app.include_router(inbox_router)
@@ -114,7 +116,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         async def serve_dashboard() -> FileResponse:
             index_path = static_dir / "index.html"
             if index_path.exists():
-                return FileResponse(str(index_path))
+                return FileResponse(
+                    str(index_path),
+                    headers={"Cache-Control": "no-store, max-age=0"},
+                )
             return JSONResponse({"message": "Termnova API operational. Web Dashboard building."})
 
         @app.get("/robots.txt", include_in_schema=False)

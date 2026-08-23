@@ -5,6 +5,7 @@ import structlog
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from termnova.api.identity import get_desk_actor, resolve_actor_name
 from termnova.config import Settings, get_settings
 from termnova.db.connection import get_db_session
 from termnova.db.repository import ContractRepository
@@ -12,6 +13,18 @@ from termnova.pipeline.embedder import EmbeddingService
 from termnova.rag.engine import RAGEngine
 
 logger = structlog.get_logger(__name__)
+
+__all__ = [
+    "get_embedder_service",
+    "get_embedder",
+    "get_db",
+    "get_settings_dep",
+    "get_repository",
+    "get_rag_engine",
+    "get_redis_client",
+    "get_desk_actor",
+    "resolve_actor_name",
+]
 
 _redis_pool: aioredis.Redis | None = None
 _embedder_instance: EmbeddingService | None = None

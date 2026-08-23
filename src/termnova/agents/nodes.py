@@ -78,7 +78,11 @@ async def retrieve_node(state: AgentState, config: RunnableConfig | None = None)
     if retriever is not None:
         targets = sub_queries if sub_queries else [query]
         for t in targets:
-            results = await retriever.retrieve(t)
+            results = await retriever.retrieve(
+                t,
+                top_k=configurable.get("top_k"),
+                document_ids=configurable.get("document_ids"),
+            )
             for r in results:
                 if r.chunk_id not in seen_ids:
                     seen_ids.add(r.chunk_id)
