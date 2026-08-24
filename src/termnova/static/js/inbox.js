@@ -116,7 +116,7 @@ class InboxApp {
 
     async fetchStats() {
         try {
-            const res = await fetch("/api/v1/inbox/stats");
+            const res = await apiRequest("/api/v1/inbox/stats");
             if (!res.ok) return;
             this.stats = await res.json();
             this.renderStats(this.stats);
@@ -176,7 +176,7 @@ class InboxApp {
             if (this.currentSearch) params.append("search", this.currentSearch);
             if (this.currentTag) params.append("tag", this.currentTag);
 
-            const res = await fetch(`/api/v1/inbox/?${params.toString()}`);
+            const res = await apiRequest(`/api/v1/inbox/?${params.toString()}`);
             if (!res.ok) throw new Error("Failed to fetch inbox items");
 
             const data = await res.json();
@@ -400,7 +400,7 @@ class InboxApp {
 
     async acknowledge(docId) {
         try {
-            const res = await fetch(`/api/v1/inbox/${docId}/acknowledge`, {
+            const res = await apiRequest(`/api/v1/inbox/${docId}/acknowledge`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ acknowledged_by: "Current User" }),
@@ -418,7 +418,7 @@ class InboxApp {
         if (!assignee || !assignee.trim()) return;
 
         try {
-            const res = await fetch(`/api/v1/inbox/${docId}/assign`, {
+            const res = await apiRequest(`/api/v1/inbox/${docId}/assign`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ assigned_to: assignee.trim() }),
@@ -433,7 +433,7 @@ class InboxApp {
 
     async complete(docId) {
         try {
-            const res = await fetch(`/api/v1/inbox/${docId}/complete`, { method: "POST" });
+            const res = await apiRequest(`/api/v1/inbox/${docId}/complete`, { method: "POST" });
             if (res.ok) {
                 await this.loadData();
             }
@@ -444,7 +444,7 @@ class InboxApp {
 
     async archive(docId) {
         try {
-            const res = await fetch(`/api/v1/inbox/${docId}/archive`, { method: "POST" });
+            const res = await apiRequest(`/api/v1/inbox/${docId}/archive`, { method: "POST" });
             if (res.ok) {
                 await this.loadData();
             }
@@ -461,7 +461,7 @@ class InboxApp {
         if (!assignee || !assignee.trim()) return;
 
         try {
-            const res = await fetch("/api/v1/inbox/bulk-assign", {
+            const res = await apiRequest("/api/v1/inbox/bulk-assign", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ document_ids: docIds, assigned_to: assignee.trim() }),
@@ -483,7 +483,7 @@ class InboxApp {
         if (!confirm(`Archive ${docIds.length} selected contracts?`)) return;
 
         try {
-            const res = await fetch("/api/v1/inbox/bulk-archive", {
+            const res = await apiRequest("/api/v1/inbox/bulk-archive", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ document_ids: docIds }),
@@ -517,7 +517,7 @@ class InboxApp {
 
         listEl.innerHTML = `<div style="text-align: center; color: #94a3b8;">Loading routing rules...</div>`;
         try {
-            const res = await fetch("/api/v1/triage/rules/");
+            const res = await apiRequest("/api/v1/triage/rules/");
             if (!res.ok) return;
             const rules = await res.json();
             if (rules.length === 0) {
@@ -559,7 +559,7 @@ class InboxApp {
         if (assignInput && assignInput.value.trim()) action["assign_to"] = assignInput.value.trim();
 
         try {
-            const res = await fetch("/api/v1/triage/rules/", {
+            const res = await apiRequest("/api/v1/triage/rules/", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -583,7 +583,7 @@ class InboxApp {
     async deleteRule(ruleId) {
         if (!confirm("Deactivate this rule?")) return;
         try {
-            await fetch(`/api/v1/triage/rules/${ruleId}`, { method: "DELETE" });
+            await apiRequest(`/api/v1/triage/rules/${ruleId}`, { method: "DELETE" });
             await this.loadRules();
         } catch (err) {
             console.error("Failed to delete rule:", err);
