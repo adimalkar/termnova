@@ -138,7 +138,7 @@ class Chunk(Base):
     )
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    content_tsv: Mapped[str | None] = mapped_column(
+    content_tsv: Mapped[Any | None] = mapped_column(
         TSVECTOR,
         Computed("to_tsvector('english'::regconfig, content)", persisted=True),
         nullable=True,

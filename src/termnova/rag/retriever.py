@@ -74,13 +74,13 @@ class HybridRetriever:
             }
 
         # 2. Indexed PostgreSQL full-text search
-        bm25_ranks: dict[uuid.UUID, dict[str, Any]] = {}
+        lexical_ranks: dict[uuid.UUID, dict[str, Any]] = {}
         text_matches = await self.repository.full_text_search(
             query, top_k=k * 2, document_ids=document_ids
         )
         max_text_score = max((score for _, _, score in text_matches), default=1.0) or 1.0
         for rank_idx, (chunk, filename, raw_score) in enumerate(text_matches):
-            bm25_ranks[chunk.id] = {
+            lexical_ranks[chunk.id] = {
                 "rank": rank_idx + 1,
                 "score": raw_score / max_text_score,
                 "chunk": chunk,
@@ -88,7 +88,7 @@ class HybridRetriever:
             }
 
         # 3. Reciprocal Rank Fusion (RRF)
-        all_chunk_ids = set(semantic_ranks.keys()).union(set(bm25_ranks.keys()))
+        all_chunk_ids = set(semantic_ranks.keys()).union(set(lexical_ranks.keys()))
         if not all_chunk_ids:
             logger.info("No chunks matched hybrid retrieval", query=query)
             return []
@@ -96,28 +96,28 @@ class HybridRetriever:
         fused_candidates: list[RetrievedChunk] = []
 
         w_semantic = 0.6
-        w_bm25 = 0.4
+        w_lexical = 0.4
 
         for cid in all_chunk_ids:
             sem_info = semantic_ranks.get(cid)
-            bm25_info = bm25_ranks.get(cid)
+            lexical_info = lexical_ranks.get(cid)
 
-            chunk = sem_info["chunk"] if sem_info else bm25_info["chunk"]
-            filename = sem_info["filename"] if sem_info else bm25_info["filename"]
+            chunk = sem_info["chunk"] if sem_info else lexical_info["chunk"]
+            filename = sem_info["filename"] if sem_info else lexical_info["filename"]
 
             sem_score = sem_info["score"] if sem_info else 0.0
             sem_rank = sem_info["rank"] if sem_info else 999
 
-            bm25_score = bm25_info["score"] if bm25_info else 0.0
-            bm25_rank = bm25_info["rank"] if bm25_info else 999
+            lexical_score = lexical_info["score"] if lexical_info else 0.0
+            lexical_rank = lexical_info["rank"] if lexical_info else 999
 
             # RRF calculation
             rrf_sem_component = w_semantic / (rrf_k + sem_rank) if sem_info else 0.0
-            rrf_bm25_component = w_bm25 / (rrf_k + bm25_rank) if bm25_info else 0.0
-            raw_fused_score = rrf_sem_component + rrf_bm25_component
+            rrf_lexical_component = w_lexical / (rrf_k + lexical_rank) if lexical_info else 0.0
+            raw_fused_score = rrf_sem_component + rrf_lexical_component
 
             # Normalize RRF score to 0.0 - 1.0 range
-            max_possible_rrf = (w_semantic / (rrf_k + 1)) + (w_bm25 / (rrf_k + 1))
+            max_possible_rrf = (w_semantic / (rrf_k + 1)) + (w_lexical / (rrf_k + 1))
             normalized_fused_score = min(1.0, raw_fused_score / max_possible_rrf)
 
             fused_candidates.append(
@@ -129,7 +129,7 @@ class HybridRetriever:
                     section_header=chunk.section_header,
                     document_filename=filename,
                     semantic_score=round(sem_score, 4),
-                    keyword_score=round(bm25_score, 4),
+                    keyword_score=round(lexical_score, 4),
                     fused_score=round(normalized_fused_score, 4),
                 )
             )
