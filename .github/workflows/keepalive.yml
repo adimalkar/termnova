@@ -1,31 +1,47 @@
-name: Production Keep-Alive & Uptime Monitor
+name: Production Health Monitor
 
 on:
   schedule:
-    # Trigger every 10 minutes to prevent Render free-tier instance sleep
-    - cron: '*/10 * * * *'
+    - cron: "17,47 * * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: production-health-monitor
+  cancel-in-progress: true
+
 jobs:
-  ping:
-    name: Keep-Alive Health Ping
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
+  health:
+    name: Verify production readiness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      HEALTH_URL: https://termnova.onrender.com/health
     steps:
-      - name: Ping Termnova Health Endpoint
+      - name: Check application and database health
+        shell: bash
         run: |
-          echo "Sending keep-alive ping to Termnova production endpoint..."
-          
-          for i in {1..3}; do
-            echo "Ping Attempt $i..."
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 25 https://termnova.onrender.com/health || echo "000")
-            echo "HTTP Status Code: $HTTP_STATUS"
-            
-            if [ "$HTTP_STATUS" -eq 200 ]; then
-              echo "✅ Termnova is healthy and awake!"
-              break
-            else
-              echo "⚠️ Instance was sleeping or returned non-200. Retrying in 15 seconds..."
+          for attempt in 1 2 3; do
+            if curl --fail --silent --show-error \
+              --connect-timeout 5 --max-time 25 \
+              --output /tmp/termnova-health.json "$HEALTH_URL" \
+              && jq -e '.status == "healthy" and .database == "healthy"' \
+                /tmp/termnova-health.json >/dev/null; then
+              jq . /tmp/termnova-health.json
+              echo "Production readiness check passed on attempt $attempt."
+              exit 0
+            fi
+
+            echo "Production readiness check failed on attempt $attempt of 3."
+            if [ "$attempt" -lt 3 ]; then
               sleep 15
             fi
           done
+
+          if [ -f /tmp/termnova-health.json ]; then
+            jq . /tmp/termnova-health.json || cat /tmp/termnova-health.json
+          fi
+          echo "Production remained unhealthy after all retries." >&2
+          exit 1

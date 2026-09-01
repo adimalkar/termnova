@@ -1,0 +1,82 @@
+name: Production Deployment
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Deploy and verify exact revision
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://termnova.onrender.com
+    env:
+      DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+      EXPECTED_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+      HEALTH_URL: https://termnova.onrender.com/health
+    steps:
+      - name: Trigger deployment when a hook is configured
+        shell: bash
+        run: |
+          if [ -n "$DEPLOY_HOOK" ]; then
+            curl --fail --silent --show-error \
+              --connect-timeout 10 --max-time 30 \
+              --request POST "$DEPLOY_HOOK"
+            echo "Render deployment hook accepted."
+          else
+            echo "No deployment hook configured; waiting for Render auto-deploy."
+          fi
+
+      - name: Wait for the exact healthy revision
+        shell: bash
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error \
+              --connect-timeout 5 --max-time 25 \
+              --output /tmp/termnova-health.json "$HEALTH_URL" \
+              && jq -e --arg expected "$EXPECTED_COMMIT" \
+                '.status == "healthy" and .database == "healthy" and .commit_sha == $expected' \
+                /tmp/termnova-health.json >/dev/null; then
+              jq . /tmp/termnova-health.json
+              echo "Verified healthy production commit $EXPECTED_COMMIT."
+              exit 0
+            fi
+
+            running_commit=$(jq -r '.commit_sha // "unavailable"' \
+              /tmp/termnova-health.json 2>/dev/null || echo "unavailable")
+            echo "Attempt $attempt of 60: expected $EXPECTED_COMMIT, running $running_commit."
+            if [ "$attempt" -lt 60 ]; then
+              sleep 10
+            fi
+          done
+
+          if [ -f /tmp/termnova-health.json ]; then
+            jq . /tmp/termnova-health.json || cat /tmp/termnova-health.json
+          fi
+          echo "Production did not reach the expected healthy commit." >&2
+          exit 1
+
+      - name: Publish deployment summary
+        shell: bash
+        run: |
+          {
+            echo "### Production deployment verified"
+            echo "- URL: $HEALTH_URL"
+            echo "- Commit: \`$EXPECTED_COMMIT\`"
+            echo "- Readiness: healthy"
+          } >>"$GITHUB_STEP_SUMMARY"
