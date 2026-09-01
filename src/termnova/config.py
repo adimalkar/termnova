@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     CACHE_TTL_SECONDS: int = Field(
         default=300,
         description="TTL for cached query responses (5 minutes)",
+    )
+    CACHE_SCHEMA_VERSION: str = Field(
+        default="v2",
+        description="Bump to invalidate all query response cache entries",
     )
 
     # ── LLM Provider & Routing ──
@@ -185,10 +189,31 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = Field(
         default="data/uploads", description="Directory to store uploaded contract files"
     )
+    STORAGE_BACKEND: Literal["local", "s3"] = Field(
+        default="local",
+        description="Original-document storage backend; use s3 in multi-service deployments",
+    )
+    STORAGE_BUCKET: str | None = Field(default=None, description="S3-compatible storage bucket")
+    STORAGE_ENDPOINT_URL: str | None = Field(
+        default=None, description="Optional S3-compatible endpoint (R2, MinIO, etc.)"
+    )
+    STORAGE_REGION: str = Field(default="us-east-1", description="Object storage region")
+    STORAGE_ACCESS_KEY_ID: str | None = Field(default=None)
+    STORAGE_SECRET_ACCESS_KEY: str | None = Field(default=None)
     MAX_UPLOAD_SIZE_MB: int = Field(
         default=50, description="Maximum allowed file upload size in MB"
     )
     CORS_ORIGINS: list[str] = Field(default=["*"], description="Allowed CORS origins")
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def normalize_async_database_url(cls, value: str) -> str:
+        """Use asyncpg when a platform injects a generic PostgreSQL URL."""
+        if value.startswith("postgres://"):
+            return value.replace("postgres://", "postgresql+asyncpg://", 1)
+        if value.startswith("postgresql://"):
+            return value.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return value
 
     @property
     def upload_path(self) -> Path:

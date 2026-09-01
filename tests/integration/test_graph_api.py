@@ -20,7 +20,7 @@ async def test_graph_api_endpoints_end_to_end(api_client: AsyncClient):
     """
     msa_file = {"file": ("msa_horizon_omni.txt", BytesIO(msa_bytes), "text/plain")}
     msa_resp = await api_client.post("/api/v1/documents/upload", files=msa_file)
-    assert msa_resp.status_code == 201
+    assert msa_resp.status_code == 202
     msa_id = msa_resp.json()["document_id"]
 
     # 2. Upload SOW
@@ -31,7 +31,7 @@ async def test_graph_api_endpoints_end_to_end(api_client: AsyncClient):
     """
     sow_file = {"file": ("sow_1_migration.txt", BytesIO(sow_bytes), "text/plain")}
     sow_resp = await api_client.post("/api/v1/documents/upload", files=sow_file)
-    assert sow_resp.status_code == 201
+    assert sow_resp.status_code == 202
     sow_id = sow_resp.json()["document_id"]
 
     # 3. GET /api/v1/graph/visualize
