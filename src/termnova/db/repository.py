@@ -4,7 +4,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import numpy as np
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -149,50 +148,49 @@ class ContractRepository:
         threshold: float = 0.0,
         document_ids: list[uuid.UUID] | None = None,
     ) -> list[tuple[Chunk, str, float]]:
-        """Perform semantic search using cosine similarity over chunk embeddings.
-
-        Returns list of (Chunk, document_filename, cosine_similarity_score) tuples.
-        """
-        if not query_embedding:
+        """Search with pgvector cosine distance so ranking stays inside PostgreSQL."""
+        if not query_embedding or (document_ids is not None and not document_ids):
             return []
-
-        # Query chunks that have embeddings, optionally scoped to document_ids
+        distance = Chunk.embedding.cosine_distance(query_embedding).label("distance")
         stmt = (
-            select(Chunk, Document.filename)
+            select(Chunk, Document.filename, distance)
             .join(Document, Chunk.document_id == Document.id)
             .where(Chunk.embedding.isnot(None))
+            .order_by(distance)
+            .limit(top_k)
         )
         if document_ids is not None:
-            if not document_ids:
-                return []
             stmt = stmt.where(Chunk.document_id.in_(document_ids))
-
         result = await self.session.execute(stmt)
-        rows = list(result.all())
+        matches = []
+        for chunk, filename, cosine_distance in result.all():
+            similarity = 1.0 - float(cosine_distance)
+            if similarity >= threshold:
+                matches.append((chunk, filename, similarity))
+        return matches
 
-        if not rows:
+    async def full_text_search(
+        self,
+        query_text: str,
+        top_k: int = 10,
+        document_ids: list[uuid.UUID] | None = None,
+    ) -> list[tuple[Chunk, str, float]]:
+        """Rank chunks with the indexed PostgreSQL English text-search vector."""
+        if not query_text.strip() or (document_ids is not None and not document_ids):
             return []
-
-        query_vec = np.array(query_embedding, dtype=np.float32)
-        query_norm = np.linalg.norm(query_vec)
-        if query_norm == 0:
-            query_norm = 1.0
-
-        scored_results: list[tuple[Chunk, str, float]] = []
-
-        for chunk, filename in rows:
-            if not chunk.embedding:
-                continue
-            chunk_vec = np.array(chunk.embedding, dtype=np.float32)
-            chunk_norm = np.linalg.norm(chunk_vec)
-            if chunk_norm == 0:
-                continue
-            cosine_sim = float(np.dot(query_vec, chunk_vec) / (query_norm * chunk_norm))
-            if cosine_sim >= threshold:
-                scored_results.append((chunk, filename, cosine_sim))
-
-        scored_results.sort(key=lambda x: x[2], reverse=True)
-        return scored_results[:top_k]
+        ts_query = func.websearch_to_tsquery("english", query_text)
+        rank = func.ts_rank_cd(Chunk.content_tsv, ts_query).label("rank")
+        stmt = (
+            select(Chunk, Document.filename, rank)
+            .join(Document, Chunk.document_id == Document.id)
+            .where(Chunk.content_tsv.op("@@")(ts_query))
+            .order_by(rank.desc())
+            .limit(top_k)
+        )
+        if document_ids is not None:
+            stmt = stmt.where(Chunk.document_id.in_(document_ids))
+        result = await self.session.execute(stmt)
+        return [(chunk, filename, float(score)) for chunk, filename, score in result.all()]
 
     async def text_search(
         self,

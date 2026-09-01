@@ -4,20 +4,23 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     ARRAY,
     BigInteger,
     Boolean,
+    Computed,
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -111,7 +114,16 @@ class Chunk(Base):
     """Extracted text chunk with embedding vector and source location metadata."""
 
     __tablename__ = "chunks"
-    __table_args__ = (UniqueConstraint("document_id", "chunk_index", name="uq_doc_chunk_index"),)
+    __table_args__ = (
+        UniqueConstraint("document_id", "chunk_index", name="uq_doc_chunk_index"),
+        Index("idx_chunks_content_tsv", "content_tsv", postgresql_using="gin"),
+        Index(
+            "ix_chunks_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -126,13 +138,18 @@ class Chunk(Base):
     )
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_tsv: Mapped[str | None] = mapped_column(
+        TSVECTOR,
+        Computed("to_tsvector('english'::regconfig, content)", persisted=True),
+        nullable=True,
+    )
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     section_header: Mapped[str | None] = mapped_column(String(500), nullable=True)
     char_offset_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     char_offset_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(
-        ARRAY(Float(precision=53)),
+        Vector(1536),
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(

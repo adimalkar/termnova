@@ -1,17 +1,13 @@
-"""Hybrid retriever combining dense pgvector semantic similarity with sparse BM25 keyword matching via Reciprocal Rank Fusion."""
+"""Hybrid pgvector and PostgreSQL full-text retrieval with Reciprocal Rank Fusion."""
 
 import re
 import uuid
-from datetime import UTC, datetime
 from typing import Any
 
-import numpy as np
 import structlog
-from rank_bm25 import BM25Okapi
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from termnova.config import Settings, get_settings
-from termnova.db.models import Chunk
 from termnova.db.repository import ContractRepository
 from termnova.pipeline.embedder import EmbeddingService
 from termnova.rag import RetrievedChunk
@@ -20,12 +16,12 @@ logger = structlog.get_logger(__name__)
 
 
 def _simple_tokenize(text: str) -> list[str]:
-    """Fast, lightweight lowercase alphanumeric tokenizer."""
+    """Compatibility tokenizer retained for callers and lexical-query tests."""
     return re.findall(r"\b[a-zA-Z0-9_]+\b", text.lower())
 
 
 class HybridRetriever:
-    """Combines vector search and BM25 using Reciprocal Rank Fusion."""
+    """Combines indexed semantic and lexical search using Reciprocal Rank Fusion."""
 
     def __init__(
         self,
@@ -38,35 +34,8 @@ class HybridRetriever:
         self.repository = ContractRepository(session)
         self.embedder = embedder or EmbeddingService(self.settings)
 
-        # In-memory BM25 index cache
-        self._bm25_index: BM25Okapi | None = None
-        self._bm25_chunks: list[tuple[Chunk, str]] = []
-        self._last_index_time: datetime | None = None
-
     def invalidate_bm25_cache(self) -> None:
-        """Clear BM25 cache so next query reloads from database."""
-        self._bm25_index = None
-        self._bm25_chunks = []
-        self._last_index_time = None
-
-    async def _ensure_bm25_index(self) -> tuple[BM25Okapi | None, list[tuple[Chunk, str]]]:
-        """Build or retrieve cached BM25 index over all current document chunks."""
-        if self._bm25_index is not None and self._bm25_chunks:
-            return self._bm25_index, self._bm25_chunks
-
-        all_chunks = await self.repository.get_all_chunks()
-        if not all_chunks:
-            return None, []
-
-        corpus = [_simple_tokenize(chunk.content) for chunk, _ in all_chunks]
-        self._bm25_index = BM25Okapi(
-            corpus,
-            k1=self.settings.BM25_K1,
-            b=self.settings.BM25_B,
-        )
-        self._bm25_chunks = all_chunks
-        self._last_index_time = datetime.now(UTC)
-        return self._bm25_index, self._bm25_chunks
+        """Compatibility no-op: PostgreSQL maintains the lexical index transactionally."""
 
     async def retrieve(
         self,
@@ -104,46 +73,19 @@ class HybridRetriever:
                 "filename": filename,
             }
 
-        # 2. BM25 Keyword Search
-        if document_ids is not None:
-            # Dynamically build BM25 over scoped chunks
-            scoped_chunks = await self.repository.get_all_chunks(document_ids=document_ids)
-            if scoped_chunks:
-                corpus = [_simple_tokenize(chunk.content) for chunk, _ in scoped_chunks]
-                bm25_index = BM25Okapi(corpus, k1=self.settings.BM25_K1, b=self.settings.BM25_B)
-                bm25_chunks = scoped_chunks
-            else:
-                bm25_index, bm25_chunks = None, []
-        else:
-            bm25_index, bm25_chunks = await self._ensure_bm25_index()
-
+        # 2. Indexed PostgreSQL full-text search
         bm25_ranks: dict[uuid.UUID, dict[str, Any]] = {}
-
-        if bm25_index is not None and bm25_chunks:
-            tokenized_query = _simple_tokenize(query)
-            if tokenized_query:
-                raw_bm25_scores = bm25_index.get_scores(tokenized_query)
-                max_bm25 = (
-                    float(np.max(raw_bm25_scores))
-                    if len(raw_bm25_scores) > 0 and np.max(raw_bm25_scores) > 0
-                    else 1.0
-                )
-
-                # Sort chunks by BM25 score descending
-                scored_bm25 = sorted(
-                    zip(bm25_chunks, raw_bm25_scores, strict=False),
-                    key=lambda x: x[1],
-                    reverse=True,
-                )
-
-                for rank_idx, ((chunk, filename), raw_score) in enumerate(scored_bm25[: k * 2]):
-                    if raw_score > 0:
-                        bm25_ranks[chunk.id] = {
-                            "rank": rank_idx + 1,
-                            "score": float(raw_score / max_bm25),
-                            "chunk": chunk,
-                            "filename": filename,
-                        }
+        text_matches = await self.repository.full_text_search(
+            query, top_k=k * 2, document_ids=document_ids
+        )
+        max_text_score = max((score for _, _, score in text_matches), default=1.0) or 1.0
+        for rank_idx, (chunk, filename, raw_score) in enumerate(text_matches):
+            bm25_ranks[chunk.id] = {
+                "rank": rank_idx + 1,
+                "score": raw_score / max_text_score,
+                "chunk": chunk,
+                "filename": filename,
+            }
 
         # 3. Reciprocal Rank Fusion (RRF)
         all_chunk_ids = set(semantic_ranks.keys()).union(set(bm25_ranks.keys()))
