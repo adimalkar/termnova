@@ -21,7 +21,7 @@ jobs:
       (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     environment:
       name: production
       url: https://termnova.onrender.com
@@ -47,7 +47,7 @@ jobs:
         run: |
           for attempt in $(seq 1 60); do
             if curl --fail --silent --show-error \
-              --connect-timeout 5 --max-time 25 \
+              --connect-timeout 5 --max-time 10 \
               --output /tmp/termnova-health.json "$HEALTH_URL" \
               && jq -e --arg expected "$EXPECTED_COMMIT" \
                 '.status == "healthy" and .database == "healthy" and .commit_sha == $expected' \
