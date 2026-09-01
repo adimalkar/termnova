@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from termnova.api.main import create_app
@@ -66,6 +67,7 @@ async def test_engine(test_settings: Settings) -> AsyncGenerator[AsyncEngine, No
     """Provide clean database engine for integration tests."""
     engine = _create_async_engine(test_settings.DATABASE_URL)
     async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
     yield engine
     await engine.dispose()
