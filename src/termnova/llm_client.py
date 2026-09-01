@@ -61,6 +61,9 @@ async def acompletion_with_fallback(
 ) -> Any:
     """Call the primary model, then the configured fallback on absence or failure."""
     cfg = settings or get_settings()
+    if cfg.LLM_PROVIDER == "mock":
+        raise RuntimeError("LLM calls are disabled while LLM_PROVIDER=mock")
+
     attempts = [
         (cfg.LLM_PROVIDER, cfg.LLM_MODEL),
         (cfg.LLM_FALLBACK_PROVIDER, cfg.LLM_FALLBACK_MODEL),

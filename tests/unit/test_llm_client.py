@@ -58,3 +58,27 @@ async def test_completion_falls_back_from_opencode_to_openrouter(monkeypatch):
     assert calls[1]["api_base"] == settings.OPENROUTER_BASE_URL
     assert all(call["timeout"] == 12 for call in calls)
     assert all(call["num_retries"] == 1 for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_mock_provider_disables_fallback_network_calls(monkeypatch):
+    calls: list[dict] = []
+
+    async def fake_acompletion(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(model=kwargs["model"], choices=[])
+
+    monkeypatch.setitem(sys.modules, "litellm", SimpleNamespace(acompletion=fake_acompletion))
+    settings = Settings(
+        LLM_PROVIDER="mock",
+        LLM_FALLBACK_PROVIDER="openrouter",
+        OPENROUTER_API_KEY="openrouter-key",
+    )
+
+    with pytest.raises(RuntimeError, match="LLM calls are disabled"):
+        await acompletion_with_fallback(
+            [{"role": "user", "content": "Do not send this message."}],
+            settings=settings,
+        )
+
+    assert calls == []
