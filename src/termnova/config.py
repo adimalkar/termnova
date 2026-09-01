@@ -40,9 +40,14 @@ class Settings(BaseSettings):
     )
 
     # ── LLM Provider & Routing ──
-    LLM_PROVIDER: Literal["openai", "openrouter", "bedrock", "ollama", "mock"] = Field(
-        default="openrouter",
+    LLM_PROVIDER: Literal["opencode", "openai", "openrouter", "bedrock", "ollama", "mock"] = Field(
+        default="opencode",
         description="Active LLM provider backend",
+    )
+    OPENCODE_API_KEY: str | None = Field(default=None, description="OpenCode Zen API key")
+    OPENCODE_BASE_URL: str = Field(
+        default="https://opencode.ai/zen/v1",
+        description="OpenCode Zen OpenAI-compatible API base URL",
     )
     OPENAI_API_KEY: str | None = Field(default=None, description="OpenAI API key")
     OPENROUTER_API_KEY: str | None = Field(default=None, description="OpenRouter API key")
@@ -60,11 +65,34 @@ class Settings(BaseSettings):
 
     # ── Model Names & Embedding Dimensions ──
     LLM_MODEL: str = Field(
-        default="google/gemini-2.0-flash-001",
-        description="Main generator and grader LLM model identifier (e.g. google/gemini-2.0-flash-001, deepseek/deepseek-chat, meta-llama/llama-3.3-70b-instruct:free)",
+        default="deepseek-v4-flash",
+        description="Primary generator and grader model identifier",
+    )
+    LLM_FALLBACK_PROVIDER: Literal["openai", "openrouter", "bedrock", "ollama", "mock"] = Field(
+        default="openrouter",
+        description="Provider used when the primary LLM provider is unavailable",
+    )
+    LLM_FALLBACK_MODEL: str = Field(
+        default="deepseek/deepseek-v4-flash",
+        description="Fallback model identifier",
+    )
+    LLM_TIMEOUT_SECONDS: float = Field(
+        default=30.0,
+        gt=0,
+        description="Timeout applied to every LLM and embedding request",
+    )
+    LLM_NUM_RETRIES: int = Field(
+        default=2,
+        ge=0,
+        le=5,
+        description="Provider-level retries applied to LLM and embedding requests",
+    )
+    EMBEDDING_PROVIDER: Literal["openai", "openrouter", "bedrock", "ollama", "mock"] = Field(
+        default="openrouter",
+        description="Embedding provider, configured independently from the chat model",
     )
     EMBEDDING_MODEL: str = Field(
-        default="text-embedding-3-small",
+        default="openai/text-embedding-3-small",
         description="Embedding model identifier",
     )
     EMBEDDING_DIMENSION: int = Field(
@@ -84,6 +112,16 @@ class Settings(BaseSettings):
     BM25_K1: float = Field(default=1.5, description="BM25 term frequency saturation parameter")
     BM25_B: float = Field(default=0.75, description="BM25 document length normalization")
     RRF_K: int = Field(default=60, description="Reciprocal Rank Fusion smoothing constant")
+
+    # ── LLM Pipeline Feature Flags ──
+    USE_LLM_GRADER: bool = Field(
+        default=False,
+        description="Enable LLM-based relevance grading (expensive; off by default for Render starter)",
+    )
+    USE_LLM_REWRITE: bool = Field(
+        default=False,
+        description="Enable LLM-based contextual query rewrite (off by default to save LLM calls)",
+    )
 
     # ── Agentic RAG & Query Optimization (v2) ──
     USE_AGENTIC_RAG: bool = Field(

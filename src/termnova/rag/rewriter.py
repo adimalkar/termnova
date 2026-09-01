@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 
 from termnova.config import Settings, get_settings
+from termnova.llm_client import acompletion_with_fallback, provider_available
 
 logger = structlog.get_logger(__name__)
 
@@ -45,10 +46,8 @@ class QueryRewriter:
         rewritten_text = clean_query
         sub_queries: list[str] = []
 
-        has_credentials = bool(
-            self.settings.OPENROUTER_API_KEY
-            or self.settings.OPENAI_API_KEY
-            or self.provider in ["bedrock", "ollama"]
+        has_credentials = provider_available(self.provider, self.settings) or provider_available(
+            self.settings.LLM_FALLBACK_PROVIDER, self.settings
         )
 
         # 1. Multi-part Decomposition
@@ -74,47 +73,19 @@ class QueryRewriter:
                 clean_query.lower().startswith(w)
                 for w in ["what about", "how about", "and", "what of"]
             ):
-                if self.provider != "mock" and has_credentials:
+                # Only use LLM rewrite if feature flag is enabled
+                if self.settings.USE_LLM_REWRITE and self.provider != "mock" and has_credentials:
                     try:
-                        import litellm
-
-                        model_name = self.model
-                        kwargs: dict[str, Any] = {"temperature": 0.0, "max_tokens": 60}
-
-                        if self.provider == "openrouter" or self.settings.OPENROUTER_API_KEY:
-                            if not model_name.startswith("openrouter/"):
-                                model_name = f"openrouter/{model_name}"
-                            kwargs["api_key"] = (
-                                self.settings.OPENROUTER_API_KEY or self.settings.OPENAI_API_KEY
-                            )
-                            kwargs["api_base"] = self.settings.OPENROUTER_BASE_URL
-                        elif self.provider == "openai" and self.settings.OPENAI_API_KEY:
-                            kwargs["api_key"] = self.settings.OPENAI_API_KEY
-                        elif self.provider == "bedrock":
-                            model_name = (
-                                f"bedrock/{self.model}"
-                                if not self.model.startswith("bedrock/")
-                                else self.model
-                            )
-                            if self.settings.AWS_REGION:
-                                kwargs["aws_region_name"] = self.settings.AWS_REGION
-                        elif self.provider == "ollama":
-                            model_name = (
-                                f"ollama/{self.model}"
-                                if not self.model.startswith("ollama/")
-                                else self.model
-                            )
-                            kwargs["api_base"] = self.settings.OLLAMA_BASE_URL
-
                         prompt = (
                             f"Given the following previous conversation question: '{last_q}'\n"
                             f"Rewrite the following follow-up question to be a completely self-contained legal query: '{clean_query}'\n"
                             f"Respond with ONLY the rewritten query."
                         )
-                        resp = await litellm.acompletion(
-                            model=model_name,
+                        resp = await acompletion_with_fallback(
                             messages=[{"role": "user", "content": prompt}],
-                            **kwargs,
+                            settings=self.settings,
+                            temperature=0.0,
+                            max_tokens=60,
                         )
                         rewritten_text = resp.choices[0].message.content.strip()
                         strategy = "contextual"
@@ -123,7 +94,7 @@ class QueryRewriter:
                         rewritten_text = f"{clean_query} (referring to {last_q})"
                         strategy = "contextual"
                 else:
-                    # Heuristic contextual merge
+                    # Heuristic contextual merge (default when USE_LLM_REWRITE is False)
                     rewritten_text = f"{clean_query} regarding previous inquiry on {last_q[:50]}"
                     strategy = "contextual"
 
@@ -132,45 +103,16 @@ class QueryRewriter:
         if use_hyde:
             if self.provider != "mock" and has_credentials:
                 try:
-                    import litellm
-
-                    model_name = self.model
-                    kwargs = {"temperature": 0.1, "max_tokens": 100}
-
-                    if self.provider == "openrouter" or self.settings.OPENROUTER_API_KEY:
-                        if not model_name.startswith("openrouter/"):
-                            model_name = f"openrouter/{model_name}"
-                        kwargs["api_key"] = (
-                            self.settings.OPENROUTER_API_KEY or self.settings.OPENAI_API_KEY
-                        )
-                        kwargs["api_base"] = self.settings.OPENROUTER_BASE_URL
-                    elif self.provider == "openai" and self.settings.OPENAI_API_KEY:
-                        kwargs["api_key"] = self.settings.OPENAI_API_KEY
-                    elif self.provider == "bedrock":
-                        model_name = (
-                            f"bedrock/{self.model}"
-                            if not self.model.startswith("bedrock/")
-                            else self.model
-                        )
-                        if self.settings.AWS_REGION:
-                            kwargs["aws_region_name"] = self.settings.AWS_REGION
-                    elif self.provider == "ollama":
-                        model_name = (
-                            f"ollama/{self.model}"
-                            if not self.model.startswith("ollama/")
-                            else self.model
-                        )
-                        kwargs["api_base"] = self.settings.OLLAMA_BASE_URL
-
                     hyde_prompt = (
                         f"Write a short, realistic 2-sentence legal contract clause that would answer this inquiry:\n"
                         f"Query: {rewritten_text}\n"
                         f"Clause excerpt:"
                     )
-                    resp = await litellm.acompletion(
-                        model=model_name,
+                    resp = await acompletion_with_fallback(
                         messages=[{"role": "user", "content": hyde_prompt}],
-                        **kwargs,
+                        settings=self.settings,
+                        temperature=0.1,
+                        max_tokens=100,
                     )
                     hyde_passage = resp.choices[0].message.content.strip()
                 except Exception:

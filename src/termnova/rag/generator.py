@@ -1,13 +1,18 @@
 """Citation-grounded contract answer generator with streaming and multi-provider routing."""
 
+import asyncio
 import re
 import time
 from collections.abc import AsyncGenerator
-from typing import Any
 
 import structlog
 
 from termnova.config import Settings, get_settings
+from termnova.llm_client import (
+    acompletion_stream_with_fallback,
+    acompletion_with_fallback,
+    provider_available,
+)
 from termnova.rag import Citation, GeneratedAnswer, GradedChunk
 
 logger = structlog.get_logger(__name__)
@@ -112,62 +117,26 @@ class AnswerGenerator:
             latency_ms=25,
         )
 
-    def _prepare_litellm_config(self) -> tuple[str, dict[str, Any]]:
-        """Resolve model name and authentication parameters across providers."""
-        model_name = self.model
-        kwargs: dict[str, Any] = {}
-
-        if self.provider == "openrouter" or self.settings.OPENROUTER_API_KEY:
-            if not model_name.startswith("openrouter/"):
-                model_name = f"openrouter/{model_name}"
-            kwargs["api_key"] = self.settings.OPENROUTER_API_KEY or self.settings.OPENAI_API_KEY
-            kwargs["api_base"] = self.settings.OPENROUTER_BASE_URL
-        elif self.provider == "openai" and self.settings.OPENAI_API_KEY:
-            kwargs["api_key"] = self.settings.OPENAI_API_KEY
-        elif self.provider == "bedrock":
-            model_name = (
-                f"bedrock/{self.model}" if not self.model.startswith("bedrock/") else self.model
-            )
-            if self.settings.AWS_REGION:
-                kwargs["aws_region_name"] = self.settings.AWS_REGION
-        elif self.provider == "ollama":
-            model_name = (
-                f"ollama/{self.model}" if not self.model.startswith("ollama/") else self.model
-            )
-            kwargs["api_base"] = self.settings.OLLAMA_BASE_URL
-
-        return model_name, kwargs
-
     async def generate(self, query: str, context_chunks: list[GradedChunk]) -> GeneratedAnswer:
         """Generate full answer with citations."""
         start_time = time.time()
 
-        has_credentials = bool(
-            self.settings.OPENROUTER_API_KEY
-            or self.settings.OPENAI_API_KEY
-            or self.provider in ["bedrock", "ollama"]
-        )
-
-        if self.provider == "mock" or not has_credentials:
+        if not provider_available(self.provider, self.settings) and not provider_available(
+            self.settings.LLM_FALLBACK_PROVIDER, self.settings
+        ):
             return self._fallback_generate(query, context_chunks)
 
         try:
-            import litellm
-
             context_str = self._build_context_string(context_chunks)
             user_prompt = USER_PROMPT_TEMPLATE.format(context_blocks=context_str, query=query)
-
-            model_name, kwargs = self._prepare_litellm_config()
-            kwargs["temperature"] = 0.1
-            kwargs["max_tokens"] = 800
-
-            response = await litellm.acompletion(
-                model=model_name,
+            response = await acompletion_with_fallback(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
                 ],
-                **kwargs,
+                settings=self.settings,
+                temperature=0.1,
+                max_tokens=800,
             )
 
             answer_text = response.choices[0].message.content.strip()
@@ -180,7 +149,7 @@ class AnswerGenerator:
             return GeneratedAnswer(
                 answer_text=answer_text,
                 citations=citations,
-                model_used=model_name,
+                model_used=getattr(response, "model", self.model),
                 prompt_tokens=prompt_toks,
                 completion_tokens=comp_toks,
                 latency_ms=latency_ms,
@@ -195,38 +164,27 @@ class AnswerGenerator:
         context_chunks: list[GradedChunk],
     ) -> AsyncGenerator[str, None]:
         """Stream generated text chunks for SSE responses."""
-        has_credentials = bool(
-            self.settings.OPENROUTER_API_KEY
-            or self.settings.OPENAI_API_KEY
-            or self.provider in ["bedrock", "ollama"]
-        )
-
-        if self.provider == "mock" or not has_credentials:
+        if not provider_available(self.provider, self.settings) and not provider_available(
+            self.settings.LLM_FALLBACK_PROVIDER, self.settings
+        ):
             fallback = self._fallback_generate(query, context_chunks)
             words = fallback.answer_text.split(" ")
             for w in words:
                 yield f"{w} "
-                time.sleep(0.01)
+                await asyncio.sleep(0.01)
             return
 
         try:
-            import litellm
-
             context_str = self._build_context_string(context_chunks)
             user_prompt = USER_PROMPT_TEMPLATE.format(context_blocks=context_str, query=query)
-
-            model_name, kwargs = self._prepare_litellm_config()
-            kwargs["temperature"] = 0.1
-            kwargs["max_tokens"] = 800
-            kwargs["stream"] = True
-
-            response = await litellm.acompletion(
-                model=model_name,
+            response = acompletion_stream_with_fallback(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
                 ],
-                **kwargs,
+                settings=self.settings,
+                temperature=0.1,
+                max_tokens=800,
             )
 
             async for chunk in response:

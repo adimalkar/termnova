@@ -17,7 +17,9 @@ class EmbeddingService:
 
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
-        self.provider = self.settings.LLM_PROVIDER
+        self.provider = (
+            "mock" if self.settings.LLM_PROVIDER == "mock" else self.settings.EMBEDDING_PROVIDER
+        )
         self.model = self.settings.EMBEDDING_MODEL
         self.dimension = self.settings.EMBEDDING_DIMENSION
 
@@ -55,11 +57,23 @@ class EmbeddingService:
         import litellm
 
         model_name = self.model
-        kwargs: dict[str, Any] = {}
+        kwargs: dict[str, Any] = {
+            "timeout": self.settings.LLM_TIMEOUT_SECONDS,
+            "num_retries": self.settings.LLM_NUM_RETRIES,
+        }
 
         if self.provider == "openai":
             if self.settings.OPENAI_API_KEY:
                 kwargs["api_key"] = self.settings.OPENAI_API_KEY
+        elif self.provider == "openrouter" or self.settings.OPENROUTER_API_KEY:
+            model_name = (
+                f"openrouter/{self.model}"
+                if not self.model.startswith("openrouter/")
+                else self.model
+            )
+            if self.settings.OPENROUTER_API_KEY:
+                kwargs["api_key"] = self.settings.OPENROUTER_API_KEY
+                kwargs["api_base"] = self.settings.OPENROUTER_BASE_URL
         elif self.provider == "bedrock":
             model_name = f"bedrock/{self.model}"
             if self.settings.AWS_REGION:
@@ -70,6 +84,11 @@ class EmbeddingService:
 
         response = litellm.embedding(model=model_name, input=texts, **kwargs)
         embeddings = [item["embedding"] for item in response.data]
+        invalid = [len(embedding) for embedding in embeddings if len(embedding) != self.dimension]
+        if invalid:
+            raise ValueError(
+                f"Embedding dimension mismatch: expected {self.dimension}, received {invalid[0]}"
+            )
         return embeddings
 
     def embed_texts(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
@@ -84,7 +103,9 @@ class EmbeddingService:
             batch_embeddings: list[list[float]] | None = None
 
             if self.provider != "mock" and (
-                self.settings.OPENAI_API_KEY or self.provider in ["bedrock", "ollama"]
+                self.settings.OPENAI_API_KEY
+                or self.settings.OPENROUTER_API_KEY
+                or self.provider in ["bedrock", "ollama"]
             ):
                 try:
                     batch_embeddings = self._call_litellm_embedding(batch)
