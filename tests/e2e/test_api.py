@@ -59,10 +59,10 @@ Liability is capped at $5,000,000.
 """
     files = {"file": ("e2e_contract.txt", BytesIO(contract_bytes), "text/plain")}
     upload_resp = await api_client.post("/api/v1/documents/upload", files=files)
-    assert upload_resp.status_code == 201
+    assert upload_resp.status_code == 202
     upload_data = upload_resp.json()
     doc_id = upload_data["document_id"]
-    assert upload_data["status"] in ["completed", "processing"]
+    assert upload_data["status"] in ["pending", "processing", "completed"]
 
     # 2. List documents
     list_resp = await api_client.get("/api/v1/documents")
@@ -73,7 +73,7 @@ Liability is capped at $5,000,000.
     # 3. Query the contract
     query_resp = await api_client.post(
         "/api/v1/query",
-        json={"query": "What is the liability cap in the agreement?"},
+        json={"query": "What is the liability cap in the agreement?", "stream": False},
     )
     assert query_resp.status_code == 200
     query_data = query_resp.json()

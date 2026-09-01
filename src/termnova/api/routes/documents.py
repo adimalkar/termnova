@@ -1,12 +1,13 @@
 """Document upload, listing, inspection, and deletion endpoints."""
 
+import asyncio
+import hashlib
 import uuid
 from pathlib import Path
 
 import structlog
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     File,
     HTTPException,
@@ -18,16 +19,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from termnova.api.dependencies import (
     get_db_session,
-    get_embedder_service,
     get_repository,
     get_settings,
 )
-from termnova.api.schemas import DocumentListResponse, DocumentResponse, UploadResponse
+from termnova.api.schemas import (
+    DocumentListResponse,
+    DocumentResponse,
+    TaskStatusResponse,
+    UploadResponse,
+)
 from termnova.config import Settings
-from termnova.db.connection import AsyncSessionFactory
 from termnova.db.repository import ContractRepository
-from termnova.pipeline.embedder import EmbeddingService
-from termnova.pipeline.ingestion import IngestionPipeline
+from termnova.pipeline.celery_app import celery_app
+from termnova.storage import DocumentStorage
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/documents", tags=["Document Management"])
@@ -35,28 +39,13 @@ router = APIRouter(prefix="/api/v1/documents", tags=["Document Management"])
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".md"}
 
 
-async def _run_background_ingest(file_path: Path, settings: Settings) -> None:
-    """Execute ingestion in background worker task."""
-    factory = AsyncSessionFactory()
-    async with factory() as session:
-        embedder = EmbeddingService(settings)
-        pipeline = IngestionPipeline(session, embedder, settings)
-        try:
-            await pipeline.ingest_file(file_path, force_reindex=True)
-            logger.info("Background ingestion completed", file=file_path.name)
-        except Exception as e:
-            logger.error("Background ingestion failed", file=file_path.name, error=str(e))
-
-
-@router.post("/upload", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/upload", response_model=UploadResponse, status_code=status.HTTP_202_ACCEPTED)
 async def upload_contract(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_db_session),
-    embedder: EmbeddingService = Depends(get_embedder_service),
     settings: Settings = Depends(get_settings),
 ) -> UploadResponse:
-    """Upload and ingest a contract document (PDF/DOCX/TXT)."""
+    """Persist an original and enqueue idempotent ingestion on the Celery worker."""
     import re
 
     raw_filename = Path(file.filename or "uploaded_contract.pdf").name
@@ -69,8 +58,6 @@ async def upload_contract(
             detail=f"Unsupported file format '{ext}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
         )
 
-    # Save file to disk
-    dest_path = settings.upload_path / f"{uuid.uuid4().hex[:8]}_{safe_filename}"
     content = await file.read()
 
     max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
@@ -80,31 +67,77 @@ async def upload_contract(
             detail=f"File exceeds maximum allowed size of {settings.MAX_UPLOAD_SIZE_MB}MB.",
         )
 
-    with open(dest_path, "wb") as f:
-        f.write(content)
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty."
+        )
 
-    # Process ingestion synchronously for immediate availability
-    pipeline = IngestionPipeline(session, embedder, settings)
+    repo = ContractRepository(session)
+    file_hash = hashlib.sha256(content).hexdigest()
+    existing = await repo.get_document_by_hash(file_hash)
+    if existing:
+        return UploadResponse(
+            document_id=existing.id,
+            filename=existing.filename,
+            file_type=existing.file_type,
+            status=existing.processing_status,
+            message="This exact document already exists; no duplicate job was created.",
+        )
+
+    doc = await repo.create_document(
+        filename=safe_filename,
+        file_type=ext.lstrip("."),
+        file_size_bytes=len(content),
+        file_hash=file_hash,
+    )
+    object_key = f"contracts/{doc.id}/{safe_filename}"
+    doc.metadata_ = {**doc.metadata_, "storage_key": object_key}
+    storage = DocumentStorage(settings)
     try:
-        doc = await pipeline.ingest_file(dest_path, force_reindex=True)
-        return UploadResponse(
-            document_id=doc.id,
-            filename=doc.filename,
-            file_type=doc.file_type,
-            status=doc.processing_status,
-            message=f"Contract '{safe_filename}' successfully ingested into knowledge base.",
-        )
-    except Exception as e:
-        logger.error("Synchronous ingestion failed", error=str(e))
-        # Fallback to background processing
-        background_tasks.add_task(_run_background_ingest, dest_path, settings)
-        return UploadResponse(
-            document_id=uuid.uuid4(),
-            filename=safe_filename,
-            file_type=ext.lstrip("."),
-            status="processing",
-            message="Contract uploaded and scheduled for background parsing and vectorization.",
-        )
+        await storage.put(object_key, content)
+        await session.commit()
+        if settings.APP_ENV == "test":
+            from termnova.pipeline.tasks import ingest_document_task
+
+            task = await asyncio.to_thread(
+                ingest_document_task.apply,
+                args=[object_key, str(doc.id)],
+            )
+            if task.failed():
+                raise RuntimeError(str(task.result))
+        else:
+            task = celery_app.send_task(
+                "termnova.pipeline.tasks.ingest_document_task", args=[object_key, str(doc.id)]
+            )
+    except Exception as exc:
+        await session.rollback()
+        await repo.delete_document(doc.id)
+        await session.commit()
+        await storage.delete(object_key)
+        logger.error("Document job enqueue failed", error=str(exc), filename=safe_filename)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The document could not be queued for ingestion. Please retry.",
+        ) from exc
+    return UploadResponse(
+        document_id=doc.id,
+        filename=doc.filename,
+        file_type=doc.file_type,
+        status="pending",
+        task_id=task.id,
+        message="Contract stored and queued for background parsing and indexing.",
+    )
+
+
+@router.get("/tasks/{task_id}", response_model=TaskStatusResponse)
+async def get_ingestion_task(task_id: str) -> TaskStatusResponse:
+    """Return Celery task progress/result for upload polling."""
+    from celery.result import AsyncResult
+
+    result = AsyncResult(task_id, app=celery_app)
+    payload = result.result if result.successful() and isinstance(result.result, dict) else None
+    error = str(result.result) if result.failed() else None
+    return TaskStatusResponse(task_id=task_id, status=result.status, result=payload, error=error)
 
 
 @router.get("", response_model=DocumentListResponse)
@@ -169,14 +202,22 @@ async def get_contract_detail(
 async def delete_contract(
     document_id: uuid.UUID,
     repo: ContractRepository = Depends(get_repository),
+    settings: Settings = Depends(get_settings),
 ):
     """Delete a contract and its associated vector chunks from the database."""
+    document = await repo.get_document(document_id)
     success = await repo.delete_document(document_id)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Document {document_id} not found for deletion.",
         )
+    object_key = (document.metadata_ or {}).get("storage_key") if document else None
+    if object_key:
+        try:
+            await DocumentStorage(settings).delete(object_key)
+        except Exception as exc:
+            logger.warning("Original object deletion failed", key=object_key, error=str(exc))
     return None
 
 
