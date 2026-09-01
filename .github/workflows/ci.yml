@@ -1,39 +1,59 @@
-name: Termnova CI Pipeline
+name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main]
   pull_request:
-    branches: [ main, master ]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
 
 jobs:
-  lint:
-    name: Lint & Format Check
-    runs-on: ubuntu-latest
+  quality:
+    name: Quality and package build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: "3.11"
-          cache: "pip"
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
-      - name: Install Linting Tools
-        run: |
-          pip install --upgrade pip
-          pip install ruff mypy
+      - name: Install quality tooling
+        run: python -m pip install "ruff>=0.5" "build>=1.2"
 
-      - name: Run Ruff Linter
-        run: ruff check src/ tests/
+      - name: Lint
+        run: ruff check src tests
 
-      - name: Run Ruff Format Check
-        run: ruff format --check src/ tests/
+      - name: Check formatting
+        run: ruff format --check src tests
+
+      - name: Validate Python syntax
+        run: python -m compileall -q src alembic
+
+      - name: Build Python distributions
+        run: python -m build
 
   test:
-    name: Unit & Integration Tests
-    runs-on: ubuntu-latest
+    name: PostgreSQL integration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -44,84 +64,80 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
+          --health-cmd "pg_isready -U termnova -d termnova_test"
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 5
-
+          --health-retries 10
       redis:
         image: redis:7-alpine
         ports:
           - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
-          --health-interval 10s
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 5
-
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://termnova:termnova_dev@localhost:5432/termnova_test
+      DATABASE_URL_SYNC: postgresql://termnova:termnova_dev@localhost:5432/termnova_test
+      REDIS_URL: redis://localhost:6379/0
+      LLM_PROVIDER: mock
+      EMBEDDING_PROVIDER: mock
+      APP_ENV: test
+      PGPASSWORD: termnova_dev
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: "3.11"
-          cache: "pip"
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
-      - name: Install Dependencies
+      - name: Install application and test dependencies
         run: |
-          pip install --upgrade pip setuptools wheel
-          pip install -e ".[all]"
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -e ".[all]"
 
-      - name: Run Pytest Suite with Coverage
-        env:
-          DATABASE_URL: postgresql+asyncpg://termnova:termnova_dev@localhost:5432/termnova_test
-          REDIS_URL: redis://localhost:6379/0
-          LLM_PROVIDER: mock
-          OPENAI_API_KEY: ci-test-key
+      - name: Enable pgvector and apply migrations
         run: |
-          pytest tests/ -v --cov=src/termnova --cov-report=xml --cov-report=term-missing
+          psql -h localhost -U termnova -d termnova_test -v ON_ERROR_STOP=1 \
+            -c "CREATE EXTENSION IF NOT EXISTS vector"
+          alembic upgrade head
+          alembic check
 
-  deploy:
-    name: Production Deployment & Verification
-    needs: [lint, test]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
+      - name: Run test suite with coverage gate
+        run: >-
+          pytest tests -q
+          --cov=src/termnova
+          --cov-report=term-missing
+          --cov-report=xml
+          --cov-fail-under=65
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-${{ github.sha }}
+          path: coverage.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+  container:
+    name: Container build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - name: Trigger Render Deploy Hook (Optional)
-        env:
-          DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Build web image
+        run: docker build --pull --tag termnova-web:${{ github.sha }} --file Dockerfile .
+
+      - name: Build worker image when present
         run: |
-          if [ -n "$DEPLOY_HOOK" ]; then
-            echo "Triggering Render deployment via webhook..."
-            curl -sSf -X POST "$DEPLOY_HOOK" || echo "Deploy hook notification sent"
-          else
-            echo "Render Auto-Deploy active on GitHub main branch."
+          if [ -f Dockerfile.worker ]; then
+            docker build --pull --tag termnova-worker:${{ github.sha }} --file Dockerfile.worker .
           fi
-
-      - name: Await & Verify Live Production Deployment
-        run: |
-          echo "Verifying live website availability at https://termnova.onrender.com..."
-          MAX_RETRIES=20
-          RETRY_INTERVAL=10
-          for i in $(seq 1 $MAX_RETRIES); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://termnova.onrender.com/health || echo "000")
-            if [ "$STATUS" = "200" ]; then
-              echo "✅ Termnova production deployment is live, healthy, and serving traffic (HTTP 200)!"
-              curl -s https://termnova.onrender.com/health | jq . || true
-              break
-            else
-              echo "Attempt $i/$MAX_RETRIES: Status $STATUS. Waiting ${RETRY_INTERVAL}s for Render container build/boot..."
-              sleep $RETRY_INTERVAL
-            fi
-          done
-
-      - name: Post Deployment Summary
-        run: |
-          echo "### 🚀 Termnova Production Deployment Live" >> $GITHUB_STEP_SUMMARY
-          echo "- **Website:** [https://termnova.onrender.com](https://termnova.onrender.com)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Health Endpoint:** [https://termnova.onrender.com/health](https://termnova.onrender.com/health)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Status:** ✅ Active and Serving All Features" >> $GITHUB_STEP_SUMMARY
-
