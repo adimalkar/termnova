@@ -21,7 +21,8 @@ def upgrade() -> None:
     """Migrate embedding column from ARRAY to pgvector Vector type and add HNSW index."""
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     op.execute(
-        "ALTER TABLE chunks ALTER COLUMN embedding TYPE vector(1536) USING embedding::vector(1536)"
+        "ALTER TABLE chunks ALTER COLUMN embedding TYPE vector(1536) "
+        "USING embedding::real[]::vector(1536)"
     )
     op.execute(
         "CREATE INDEX ix_chunks_embedding_hnsw ON chunks USING hnsw (embedding vector_cosine_ops)"
