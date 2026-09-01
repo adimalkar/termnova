@@ -66,7 +66,7 @@ class ContractClassifier:
         has_credentials = provider_available(
             self.settings.LLM_PROVIDER, self.settings
         ) or provider_available(self.settings.LLM_FALLBACK_PROVIDER, self.settings)
-        if has_credentials:
+        if self.settings.LLM_PROVIDER != "mock" and has_credentials:
             try:
                 llm_result = await self._classify_by_llm(
                     document_text[:4000], filename, detected_type

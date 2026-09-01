@@ -121,8 +121,9 @@ class AnswerGenerator:
         """Generate full answer with citations."""
         start_time = time.time()
 
-        if not provider_available(self.provider, self.settings) and not provider_available(
-            self.settings.LLM_FALLBACK_PROVIDER, self.settings
+        if self.provider == "mock" or (
+            not provider_available(self.provider, self.settings)
+            and not provider_available(self.settings.LLM_FALLBACK_PROVIDER, self.settings)
         ):
             return self._fallback_generate(query, context_chunks)
 
@@ -164,8 +165,9 @@ class AnswerGenerator:
         context_chunks: list[GradedChunk],
     ) -> AsyncGenerator[str, None]:
         """Stream generated text chunks for SSE responses."""
-        if not provider_available(self.provider, self.settings) and not provider_available(
-            self.settings.LLM_FALLBACK_PROVIDER, self.settings
+        if self.provider == "mock" or (
+            not provider_available(self.provider, self.settings)
+            and not provider_available(self.settings.LLM_FALLBACK_PROVIDER, self.settings)
         ):
             fallback = self._fallback_generate(query, context_chunks)
             words = fallback.answer_text.split(" ")

@@ -64,8 +64,9 @@ class RelevanceGrader:
 
     async def grade_chunk(self, query: str, chunk: RetrievedChunk) -> GradedChunk:
         """Grade a single retrieved chunk."""
-        if not provider_available(self.provider, self.settings) and not provider_available(
-            self.settings.LLM_FALLBACK_PROVIDER, self.settings
+        if self.provider == "mock" or (
+            not provider_available(self.provider, self.settings)
+            and not provider_available(self.settings.LLM_FALLBACK_PROVIDER, self.settings)
         ):
             return self._heuristic_grade(query, chunk)
 
