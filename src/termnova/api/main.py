@@ -16,8 +16,10 @@ from termnova.api.middleware import setup_middleware
 from termnova.api.routes import (
     analytics_router,
     auth_router,
+    connectors_router,
     desk_router,
     documents_router,
+    enterprise_identity_router,
     governance_router,
     graph_router,
     health_router,
@@ -120,12 +122,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ]
     protected_routers = (
         (auth_router, None),
+        (connectors_router, "document:read"),
         (organizations_router, "audit:read"),
         (governance_router, "tenant:admin"),
         (operations_router, "tenant:admin"),
         (desk_router, "document:read"),
         (query_router, "query:run"),
         (documents_router, "document:read"),
+        (enterprise_identity_router, "tenant:admin"),
         (inbox_router, "document:read"),
         (triage_rules_router, "document:write"),
         (negotiations_router, "document:write"),

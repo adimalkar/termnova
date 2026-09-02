@@ -287,6 +287,143 @@ class OrganizationUsagePolicy(TenantOwned, Base):
     )
 
 
+class LogicalDocument(TenantOwned, Base):
+    """Stable business document identity across immutable source revisions."""
+
+    __tablename__ = "logical_documents"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    document_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class DocumentVersion(TenantOwned, Base):
+    """Immutable source revision with language and processing provenance."""
+
+    __tablename__ = "document_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "logical_document_id", "version_number", name="uq_logical_document_version"
+        ),
+        UniqueConstraint("organization_id", "document_id", name="uq_org_document_version_source"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    logical_document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("logical_documents.id", ondelete="CASCADE"), nullable=False
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="RESTRICT"), nullable=False
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_system: Mapped[str] = mapped_column(String(50), nullable=False, default="upload")
+    source_revision: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    language_tag: Mapped[str] = mapped_column(String(35), nullable=False, default="und")
+    processing_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("processing_snapshots.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ClauseIdentity(TenantOwned, Base):
+    """Stable clause key linking semantically corresponding text across versions."""
+
+    __tablename__ = "clause_identities"
+    __table_args__ = (
+        UniqueConstraint("logical_document_id", "stable_key", name="uq_logical_clause_key"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    logical_document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("logical_documents.id", ondelete="CASCADE"), nullable=False
+    )
+    stable_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    canonical_label: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ConnectorConnection(TenantOwned, Base):
+    """OAuth/service connection metadata; secrets remain in an external secret store."""
+
+    __tablename__ = "connector_connections"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    external_tenant_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    credential_reference: Mapped[str] = mapped_column(String(1000), nullable=False)
+    scopes: Mapped[list[str]] = mapped_column(ARRAY(String), default=list, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
+    sync_cursor: Mapped[str | None] = mapped_column(Text, nullable=True)
+    webhook_subscription_id: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    last_health_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ConnectorEvent(TenantOwned, Base):
+    """Idempotent inbound connector event ledger."""
+
+    __tablename__ = "connector_events"
+    __table_args__ = (
+        UniqueConstraint("connection_id", "provider_event_id", name="uq_connector_event"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("connector_connections.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    provider_event_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="received")
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ServiceAccount(TenantOwned, Base):
+    """Individually revocable machine identity storing only a secret hash."""
+
+    __tablename__ = "service_accounts"
+    __table_args__ = (UniqueConstraint("organization_id", "key_prefix", name="uq_org_key_prefix"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    key_prefix: Mapped[str] = mapped_column(String(20), nullable=False)
+    secret_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    roles: Mapped[list[str]] = mapped_column(ARRAY(String), default=list, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class DirectoryConnection(TenantOwned, Base):
+    """SAML federation or SCIM directory configuration metadata."""
+
+    __tablename__ = "directory_connections"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    protocol: Mapped[str] = mapped_column(String(20), nullable=False)
+    issuer: Mapped[str] = mapped_column(String(1000), nullable=False)
+    metadata_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    credential_reference: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    group_role_mapping: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class Document(TenantOwned, Base):
     """Enterprise contract document metadata and processing status."""
 
@@ -334,6 +471,7 @@ class Document(TenantOwned, Base):
         onupdate=func.now(),
         nullable=False,
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     chunks: Mapped[list["Chunk"]] = relationship(

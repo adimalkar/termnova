@@ -17,7 +17,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from termnova.api.dependencies import (
@@ -33,8 +33,15 @@ from termnova.api.schemas import (
     UploadResponse,
 )
 from termnova.config import Settings
-from termnova.db.models import BackgroundJob, DeletionRequest, StoredObject
+from termnova.db.models import (
+    BackgroundJob,
+    DeletionRequest,
+    DocumentVersion,
+    LogicalDocument,
+    StoredObject,
+)
 from termnova.db.repository import ContractRepository
+from termnova.language import detect_language
 from termnova.operations.jobs import create_ingestion_job, mark_outbox_published
 from termnova.pipeline.celery_app import celery_app
 from termnova.security.intake import MalwareScanner, validate_content_type
@@ -55,6 +62,9 @@ ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 )
 async def upload_contract(
     file: UploadFile = File(...),
+    logical_document_id: uuid.UUID | None = Query(default=None),
+    source_system: str = Query(default="upload", max_length=50),
+    source_revision: str | None = Query(default=None, max_length=500),
     tenant: TenantContext = Depends(get_tenant_context),
     session: AsyncSession = Depends(get_db_session),
     settings: Settings = Depends(get_settings),
@@ -110,6 +120,32 @@ async def upload_contract(
         file_hash=file_hash,
         metadata={"mime_type": detected_mime},
     )
+    logical_document = (
+        await session.get(LogicalDocument, logical_document_id) if logical_document_id else None
+    )
+    if logical_document_id and logical_document is None:
+        raise HTTPException(status_code=404, detail="Logical document not found")
+    if logical_document is None:
+        logical_document = LogicalDocument(title=safe_filename)
+        session.add(logical_document)
+        await session.flush()
+    current_version = await session.scalar(
+        select(func.max(DocumentVersion.version_number)).where(
+            DocumentVersion.logical_document_id == logical_document.id
+        )
+    )
+    text_sample = content.decode("utf-8", errors="ignore") if ext in {".txt", ".md"} else ""
+    language_tag, language_confidence = detect_language(text_sample)
+    version = DocumentVersion(
+        logical_document_id=logical_document.id,
+        document_id=doc.id,
+        version_number=(current_version or 0) + 1,
+        content_hash=file_hash,
+        source_system=source_system,
+        source_revision=source_revision,
+        language_tag=language_tag,
+    )
+    session.add(version)
     base_key = f"organizations/{tenant.organization_id}/contracts/{doc.id}"
     quarantine_key = f"{base_key}/quarantine/{safe_filename}"
     object_key = f"{base_key}/original/{safe_filename}"
@@ -149,6 +185,15 @@ async def upload_contract(
             storage_key=object_key,
             file_hash=file_hash,
         )
+        version.processing_snapshot_id = job.processing_snapshot_id
+        doc.metadata_ = {
+            **doc.metadata_,
+            "logical_document_id": str(logical_document.id),
+            "document_version_id": str(version.id),
+            "version_number": version.version_number,
+            "language_tag": language_tag,
+            "language_confidence": language_confidence,
+        }
         await record_audit_event(
             session,
             tenant,
