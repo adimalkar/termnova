@@ -1,5 +1,6 @@
 """Shared test fixtures, mock providers, and isolated test database sessions."""
 
+import uuid
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -21,6 +22,8 @@ from termnova.db.models import (  # noqa: F401
     NegotiationChange,
     NegotiationTrack,
     NegotiationVersion,
+    Organization,
+    OrganizationMembership,
     QueryLog,
     TriageResult,
     TriageRule,
@@ -87,6 +90,15 @@ async def test_session(test_engine: AsyncEngine) -> AsyncGenerator[AsyncSession,
     """Yield an isolated transaction per test."""
     factory = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
     async with factory() as session:
+        organization = Organization(
+            id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            external_id="local",
+            name="Local Test Organization",
+        )
+        session.add(organization)
+        await session.commit()
+        session.info["organization_id"] = organization.id
+        session.info["actor_subject"] = "pytest"
         yield session
         await session.rollback()
 

@@ -7,13 +7,14 @@ import structlog
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from termnova.api.ws_manager import ws_manager
-from termnova.db.connection import AsyncSessionFactory, _create_async_engine
+from termnova.db.connection import AsyncSessionFactory, create_async_engine
 from termnova.rag.engine import RAGEngine
 from termnova.security.auth import (
     AuthenticationFailedError,
     IdentityProviderUnavailableError,
     authenticate_websocket,
 )
+from termnova.security.tenancy import apply_tenant_context, resolve_tenant_context
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["WebSocket"])
@@ -32,12 +33,20 @@ async def websocket_query_endpoint(websocket: WebSocket):
         await websocket.close(code=1013, reason="Identity provider unavailable")
         return
 
+    engine_instance = create_async_engine(settings)
+    session_factory = AsyncSessionFactory(engine_instance)
+    try:
+        async with session_factory() as session:
+            tenant = await resolve_tenant_context(session, principal, settings)
+    except Exception:
+        await engine_instance.dispose()
+        await websocket.close(code=4403, reason="Active organization membership required")
+        return
+
     websocket.state.principal = principal
+    websocket.state.tenant = tenant
     client_id = f"client_{uuid.uuid4().hex[:8]}"
     await ws_manager.connect(websocket, client_id)
-
-    engine_instance = _create_async_engine()
-    session_factory = AsyncSessionFactory(engine_instance)
 
     try:
         while True:
@@ -61,6 +70,7 @@ async def websocket_query_endpoint(websocket: WebSocket):
                 continue
 
             async with session_factory() as session:
+                await apply_tenant_context(session, tenant)
                 rag_engine = RAGEngine(session, settings=settings)
 
                 try:
@@ -96,7 +106,19 @@ async def websocket_notifications_endpoint(websocket: WebSocket):
         await websocket.close(code=1013, reason="Identity provider unavailable")
         return
 
+    engine_instance = create_async_engine(settings)
+    session_factory = AsyncSessionFactory(engine_instance)
+    try:
+        async with session_factory() as session:
+            tenant = await resolve_tenant_context(session, principal, settings)
+    except Exception:
+        await engine_instance.dispose()
+        await websocket.close(code=4403, reason="Active organization membership required")
+        return
+    await engine_instance.dispose()
+
     websocket.state.principal = principal
+    websocket.state.tenant = tenant
     client_id = f"notif_{uuid.uuid4().hex[:8]}"
     await ws_manager.connect(websocket, client_id)
 

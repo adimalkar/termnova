@@ -18,10 +18,12 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
@@ -30,10 +32,100 @@ class Base(DeclarativeBase):
     pass
 
 
-class Document(Base):
+class TenantOwned:
+    """Marker and common organization boundary for tenant-owned records."""
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+
+class Organization(Base):
+    """Internal tenant mapped to a stable external identity-provider key."""
+
+    __tablename__ = "organizations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    settings_: Mapped[dict[str, Any]] = mapped_column(
+        "settings", JSONB, default=dict, server_default="{}", nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class OrganizationMembership(Base):
+    """Revocable organization membership bound to an authenticated subject."""
+
+    __tablename__ = "organization_memberships"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "identity_provider", "subject", name="uq_org_identity"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    identity_provider: Mapped[str] = mapped_column(String(500), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    roles: Mapped[list[str]] = mapped_column(
+        ARRAY(String), default=list, server_default="{}", nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class AuditEvent(Base):
+    """Append-only security and business activity event."""
+
+    __tablename__ = "audit_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    actor_subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    action: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    resource_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    resource_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    details: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+    request_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+
+class Document(TenantOwned, Base):
     """Enterprise contract document metadata and processing status."""
 
     __tablename__ = "documents"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "file_hash", name="uq_org_document_hash"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -62,7 +154,7 @@ class Document(Base):
         server_default="{}",
         nullable=False,
     )
-    file_hash: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    file_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -110,7 +202,7 @@ class Document(Base):
         return f"<Document(id={self.id}, filename='{self.filename}', status='{self.processing_status}')>"
 
 
-class Chunk(Base):
+class Chunk(TenantOwned, Base):
     """Extracted text chunk with embedding vector and source location metadata."""
 
     __tablename__ = "chunks"
@@ -168,7 +260,7 @@ class Chunk(Base):
         )
 
 
-class Conversation(Base):
+class Conversation(TenantOwned, Base):
     """Conversation session grouping queries."""
 
     __tablename__ = "conversations"
@@ -202,7 +294,7 @@ class Conversation(Base):
         return f"<Conversation(id={self.id}, title='{self.title}')>"
 
 
-class QueryLog(Base):
+class QueryLog(TenantOwned, Base):
     """Query audit trail with citations, scores, guardrail flags, and feedback."""
 
     __tablename__ = "query_log"
@@ -273,12 +365,14 @@ class QueryLog(Base):
         )
 
 
-class EntityNode(Base):
+class EntityNode(TenantOwned, Base):
     """Named entity extracted from contracts (companies, people, jurisdictions, products)."""
 
     __tablename__ = "entity_nodes"
     __table_args__ = (
-        UniqueConstraint("normalized_name", "entity_type", name="uq_entity_name_type"),
+        UniqueConstraint(
+            "organization_id", "normalized_name", "entity_type", name="uq_org_entity_name_type"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -321,7 +415,7 @@ class EntityNode(Base):
         return f"<EntityNode(id={self.id}, name='{self.name}', type='{self.entity_type}')>"
 
 
-class DocumentEntity(Base):
+class DocumentEntity(TenantOwned, Base):
     """Junction mapping which entities appear in which documents with specific roles."""
 
     __tablename__ = "document_entities"
@@ -363,7 +457,7 @@ class DocumentEntity(Base):
         )
 
 
-class DocumentRelationship(Base):
+class DocumentRelationship(TenantOwned, Base):
     """Directed edge between two contracts."""
 
     __tablename__ = "document_relationships"
@@ -428,7 +522,7 @@ class DocumentRelationship(Base):
         )
 
 
-class Workspace(Base):
+class Workspace(TenantOwned, Base):
     """Shared collaborative workspace scoped to specific documents for multi-user team RAG."""
 
     __tablename__ = "workspaces"
@@ -479,7 +573,7 @@ class Workspace(Base):
         )
 
 
-class WorkspaceMember(Base):
+class WorkspaceMember(TenantOwned, Base):
     """Team members collaborating within a scoped workspace."""
 
     __tablename__ = "workspace_members"
@@ -507,7 +601,7 @@ class WorkspaceMember(Base):
         return f"<WorkspaceMember(ws={self.workspace_id}, user='{self.user_name}', role='{self.role}')>"
 
 
-class WorkspaceMessage(Base):
+class WorkspaceMessage(TenantOwned, Base):
     """Individual human message, AI response, or system event in a workspace."""
 
     __tablename__ = "workspace_messages"
@@ -568,7 +662,7 @@ class WorkspaceMessage(Base):
         )
 
 
-class TriageResult(Base):
+class TriageResult(TenantOwned, Base):
     """AI-powered classification, urgency scoring, and routing result for an incoming contract."""
 
     __tablename__ = "triage_results"
@@ -586,12 +680,6 @@ class TriageResult(Base):
         unique=True,
         index=True,
     )
-    organization_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        nullable=True,
-        index=True,
-    )
-
     # Classification
     contract_type_detected: Mapped[str] = mapped_column(String(50), nullable=False)
     type_confidence: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
@@ -657,7 +745,7 @@ class TriageResult(Base):
         return f"<TriageResult(doc={self.document_id}, type='{self.contract_type_detected}', urgency={self.urgency_score}, status='{self.inbox_status}')>"
 
 
-class TriageRule(Base):
+class TriageRule(TenantOwned, Base):
     """Organization-configurable routing rules evaluated against triage results."""
 
     __tablename__ = "triage_rules"
@@ -666,11 +754,6 @@ class TriageRule(Base):
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
-    )
-    organization_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        nullable=True,
-        index=True,
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     condition: Mapped[dict[str, Any]] = mapped_column(
@@ -702,7 +785,7 @@ class TriageRule(Base):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-class NegotiationTrack(Base):
+class NegotiationTrack(TenantOwned, Base):
     """Groups multiple versions and redline rounds of a contract negotiation."""
 
     __tablename__ = "negotiation_tracks"
@@ -711,11 +794,6 @@ class NegotiationTrack(Base):
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
-    )
-    organization_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        nullable=True,
-        index=True,
     )
     name: Mapped[str] = mapped_column(String(500), nullable=False)
     counterparty: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -761,7 +839,7 @@ class NegotiationTrack(Base):
         return f"<NegotiationTrack(id={self.id}, name='{self.name}', counterparty='{self.counterparty}', status='{self.status}')>"
 
 
-class NegotiationVersion(Base):
+class NegotiationVersion(TenantOwned, Base):
     """Individual round or version in a contract negotiation workflow."""
 
     __tablename__ = "negotiation_versions"
@@ -806,7 +884,7 @@ class NegotiationVersion(Base):
         return f"<NegotiationVersion(track={self.track_id}, v={self.version_number}, source='{self.source}', risk={self.risk_score})>"
 
 
-class NegotiationChange(Base):
+class NegotiationChange(TenantOwned, Base):
     """Tracked clause-level modification and concession classification between versions."""
 
     __tablename__ = "negotiation_changes"
@@ -857,3 +935,33 @@ class NegotiationChange(Base):
 
     def __repr__(self) -> str:
         return f"<NegotiationChange(track={self.track_id}, v{self.from_version}->v{self.to_version}, cat='{self.clause_category}', party='{self.concession_party}')>"
+
+
+@event.listens_for(Session, "before_flush")
+def enforce_tenant_ownership(session: Session, _flush_context: Any, _instances: Any) -> None:
+    """Populate and validate tenant ownership for every new or changed artifact."""
+    tenant_id = session.info.get("organization_id")
+    for instance in session.new.union(session.dirty):
+        if not isinstance(instance, TenantOwned):
+            continue
+        instance_tenant = getattr(instance, "organization_id", None)
+        if instance_tenant is None and tenant_id is not None:
+            instance.organization_id = tenant_id
+        elif tenant_id is not None and instance_tenant != tenant_id:
+            raise ValueError("Tenant-owned records cannot cross the active organization boundary")
+
+
+@event.listens_for(Session, "after_begin")
+def restore_tenant_rls_context(session: Session, _transaction: Any, connection: Any) -> None:
+    """Restore transaction-local RLS settings after an in-request commit."""
+    tenant_id = session.info.get("organization_id")
+    if tenant_id is None:
+        return
+    connection.execute(
+        text("SELECT set_config('app.organization_id', :organization_id, true)"),
+        {"organization_id": str(tenant_id)},
+    )
+    connection.execute(
+        text("SELECT set_config('app.bypass_rls', :bypass, true)"),
+        {"bypass": "on" if session.info.get("bypass_rls") else "off"},
+    )

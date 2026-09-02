@@ -73,12 +73,18 @@ async def init_db(settings: Settings | None = None) -> None:
     _engine_loop = current_loop
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
 
-    # Automatically create tables if they do not exist
+    # Production schemas must be created by reviewed Alembic migrations so RLS,
+    # triggers, and constraints cannot be silently omitted by metadata.create_all.
     try:
-        from termnova.db.models import Base
-
         async with _engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+            if (settings or get_settings()).APP_ENV.lower() in {"development", "test"}:
+                from termnova.db.models import Base
+
+                await conn.run_sync(Base.metadata.create_all)
+            else:
+                from sqlalchemy import text
+
+                await conn.execute(text("SELECT 1"))
     except Exception as e:
         import structlog
 

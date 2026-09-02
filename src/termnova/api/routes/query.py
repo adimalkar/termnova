@@ -13,6 +13,7 @@ from termnova.api.dependencies import (
     get_redis_client,
     get_repository,
     get_settings,
+    get_tenant_context,
 )
 from termnova.api.schemas import (
     CitationResponse,
@@ -24,6 +25,7 @@ from termnova.api.schemas import (
 from termnova.config import Settings
 from termnova.db.repository import ContractRepository
 from termnova.rag.engine import RAGEngine
+from termnova.security.tenancy import TenantContext
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/query", tags=["Query & RAG Analysis"])
@@ -33,6 +35,7 @@ def _build_query_cache_key(
     payload: QueryRequest,
     settings: Settings,
     corpus_version: str | bytes,
+    organization_id: uuid.UUID | None = None,
 ) -> str:
     """Build a deterministic cache key over every answer-affecting input."""
     scope = (
@@ -44,6 +47,7 @@ def _build_query_cache_key(
     cache_payload = {
         "schema": settings.CACHE_SCHEMA_VERSION,
         "corpus": version,
+        "organization_id": str(organization_id) if organization_id else "local",
         "provider": settings.LLM_PROVIDER,
         "model": settings.LLM_MODEL,
         "embedding_provider": settings.EMBEDDING_PROVIDER,
@@ -69,6 +73,7 @@ async def ask_question(
     rag_engine: RAGEngine = Depends(get_rag_engine),
     redis_client=Depends(get_redis_client),
     settings: Settings = Depends(get_settings),
+    tenant: TenantContext = Depends(get_tenant_context),
 ):
     """Ask a question against all ingested contract documents."""
     if payload.stream:
@@ -87,10 +92,14 @@ async def ask_question(
     corpus_version = "0"
     if redis_client is not None:
         try:
-            corpus_version = await redis_client.get("rag:corpus_version") or "0"
+            corpus_version = (
+                await redis_client.get(f"rag:corpus_version:{tenant.organization_id}") or "0"
+            )
         except Exception as e:
             logger.warning("Corpus cache version lookup failed", error=str(e))
-    cache_key = _build_query_cache_key(payload, settings, corpus_version)
+    cache_key = _build_query_cache_key(
+        payload, settings, corpus_version, organization_id=tenant.organization_id
+    )
     if redis_client is not None:
         try:
             cached = await redis_client.get(cache_key)
