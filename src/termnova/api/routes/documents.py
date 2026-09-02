@@ -35,6 +35,7 @@ from termnova.api.schemas import (
 from termnova.config import Settings
 from termnova.db.models import (
     BackgroundJob,
+    ConnectorSourceItem,
     DeletionRequest,
     DocumentVersion,
     LogicalDocument,
@@ -63,6 +64,7 @@ ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 async def upload_contract(
     file: UploadFile = File(...),
     logical_document_id: uuid.UUID | None = Query(default=None),
+    connector_source_item_id: uuid.UUID | None = Query(default=None),
     source_system: str = Query(default="upload", max_length=50),
     source_revision: str | None = Query(default=None, max_length=500),
     tenant: TenantContext = Depends(get_tenant_context),
@@ -103,10 +105,36 @@ async def upload_contract(
 
     repo = ContractRepository(session)
     file_hash = hashlib.sha256(content).hexdigest()
+    source_item = (
+        await session.get(ConnectorSourceItem, connector_source_item_id)
+        if connector_source_item_id
+        else None
+    )
+    if connector_source_item_id and source_item is None:
+        raise HTTPException(status_code=404, detail="Connector source item not found")
+    if source_item and source_item.logical_document_id:
+        if logical_document_id and logical_document_id != source_item.logical_document_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Connector source item already belongs to another logical document",
+            )
+        logical_document_id = source_item.logical_document_id
     existing = await repo.get_document_by_hash(file_hash)
     if existing:
+        existing_version = await session.scalar(
+            select(DocumentVersion).where(DocumentVersion.document_id == existing.id)
+        )
+        if source_item and existing_version:
+            source_item.logical_document_id = existing_version.logical_document_id
+            source_item.latest_version_id = existing_version.id
+            source_item.content_hash = file_hash
+            source_item.status = "duplicate"
+            await session.commit()
         return UploadResponse(
             document_id=existing.id,
+            logical_document_id=existing_version.logical_document_id if existing_version else None,
+            document_version_id=existing_version.id if existing_version else None,
+            version_number=existing_version.version_number if existing_version else None,
             filename=existing.filename,
             file_type=existing.file_type,
             status=existing.processing_status,
@@ -146,6 +174,13 @@ async def upload_contract(
         language_tag=language_tag,
     )
     session.add(version)
+    await session.flush()
+    if source_item:
+        source_item.logical_document_id = logical_document.id
+        source_item.latest_version_id = version.id
+        source_item.content_hash = file_hash
+        source_item.source_revision = source_revision or source_item.source_revision
+        source_item.status = "processing"
     base_key = f"organizations/{tenant.organization_id}/contracts/{doc.id}"
     quarantine_key = f"{base_key}/quarantine/{safe_filename}"
     object_key = f"{base_key}/original/{safe_filename}"
