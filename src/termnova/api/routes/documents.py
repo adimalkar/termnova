@@ -238,6 +238,9 @@ async def upload_contract(
         ) from exc
     return UploadResponse(
         document_id=doc.id,
+        logical_document_id=logical_document.id,
+        document_version_id=version.id,
+        version_number=version.version_number,
         filename=doc.filename,
         file_type=doc.file_type,
         status="pending",
