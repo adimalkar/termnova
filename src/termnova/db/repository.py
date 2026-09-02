@@ -259,6 +259,10 @@ class ContractRepository:
             llm_model=llm_model,
             llm_tokens_prompt=llm_tokens_prompt,
             llm_tokens_completion=llm_tokens_completion,
+            # PostgreSQL now() is transaction-scoped. Assign an application
+            # timestamp so multiple turns flushed in one transaction preserve
+            # their actual creation order.
+            created_at=datetime.now(UTC),
         )
         self.session.add(log)
         await self.session.flush()

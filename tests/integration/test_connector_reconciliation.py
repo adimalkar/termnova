@@ -115,7 +115,13 @@ async def test_reconcile_detects_revisions_moves_missing_items_and_acl_loss(test
     assert connection.sync_cursor == "cursor-3"
 
     runs = list(
-        (await test_session.execute(select(ConnectorSyncRun).order_by(ConnectorSyncRun.started_at)))
+        (
+            await test_session.execute(
+                select(ConnectorSyncRun).order_by(
+                    ConnectorSyncRun.started_at, ConnectorSyncRun.id
+                )
+            )
+        )
         .scalars()
         .all()
     )
