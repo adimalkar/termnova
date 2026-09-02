@@ -295,6 +295,17 @@ class LogicalDocument(TenantOwned, Base):
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     document_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="active")
+    active_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "document_versions.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_logical_documents_active_version",
+        ),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -322,6 +333,12 @@ class DocumentVersion(TenantOwned, Base):
     source_system: Mapped[str] = mapped_column(String(50), nullable=False, default="upload")
     source_revision: Mapped[str | None] = mapped_column(String(500), nullable=True)
     language_tag: Mapped[str] = mapped_column(String(35), nullable=False, default="und")
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
+    supersedes_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("document_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     processing_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("processing_snapshots.id", ondelete="RESTRICT"),
@@ -330,6 +347,7 @@ class DocumentVersion(TenantOwned, Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    promoted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ClauseIdentity(TenantOwned, Base):
@@ -345,6 +363,93 @@ class ClauseIdentity(TenantOwned, Base):
     )
     stable_key: Mapped[str] = mapped_column(String(128), nullable=False)
     canonical_label: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ClauseOccurrence(TenantOwned, Base):
+    """Version-specific source span linked to a stable clause identity."""
+
+    __tablename__ = "clause_occurrences"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_version_id", "clause_identity_id", name="uq_version_clause_occurrence"
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    clause_identity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clause_identities.id", ondelete="CASCADE"), nullable=False
+    )
+    document_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_versions.id", ondelete="CASCADE"), nullable=False
+    )
+    chunk_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chunks.id", ondelete="RESTRICT"), nullable=False
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    heading: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    char_offset_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    char_offset_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_text: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    language_tag: Mapped[str] = mapped_column(String(35), nullable=False, default="und")
+    language_confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class VersionChangeSet(TenantOwned, Base):
+    """Auditable comparison produced before a source version is promoted."""
+
+    __tablename__ = "version_change_sets"
+    __table_args__ = (
+        UniqueConstraint("document_version_id", name="uq_document_version_change_set"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    logical_document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("logical_documents.id", ondelete="CASCADE"), nullable=False
+    )
+    document_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_versions.id", ondelete="CASCADE"), nullable=False
+    )
+    baseline_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_versions.id", ondelete="SET NULL"), nullable=True
+    )
+    classification: Mapped[str] = mapped_column(String(40), nullable=False)
+    summary: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    requires_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class VersionClauseChange(TenantOwned, Base):
+    """Clause-level add, remove, or modification with source-backed impact state."""
+
+    __tablename__ = "version_clause_changes"
+    __table_args__ = (
+        UniqueConstraint("change_set_id", "clause_identity_id", name="uq_change_set_clause"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    change_set_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("version_change_sets.id", ondelete="CASCADE"), nullable=False
+    )
+    clause_identity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clause_identities.id", ondelete="CASCADE"), nullable=False
+    )
+    prior_occurrence_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clause_occurrences.id", ondelete="SET NULL"), nullable=True
+    )
+    current_occurrence_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clause_occurrences.id", ondelete="SET NULL"), nullable=True
+    )
+    change_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    similarity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    materiality: Mapped[str] = mapped_column(String(20), nullable=False, default="low")
+    review_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

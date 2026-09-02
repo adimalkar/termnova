@@ -123,6 +123,9 @@ class DocumentUploadResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     document_id: uuid.UUID
+    logical_document_id: uuid.UUID | None = None
+    document_version_id: uuid.UUID | None = None
+    version_number: int | None = None
     filename: str
     file_type: str = "pdf"
     status: str
