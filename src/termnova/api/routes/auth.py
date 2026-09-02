@@ -1,15 +1,17 @@
-"""Browser session endpoints for the same-origin Termnova operator UI."""
+"""Browser session exchange and principal introspection for the operator UI."""
 
 from typing import Annotated
 
-from fastapi import APIRouter, Request, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field, SecretStr
 
 from termnova.config import Settings
 from termnova.security.auth import (
     BROWSER_SESSION_COOKIE,
+    RequestPrincipal,
     authenticate_api_key,
     create_browser_session,
+    get_current_principal,
 )
 from termnova.security.rate_limiter import limiter
 
@@ -71,3 +73,31 @@ async def delete_session(request: Request) -> Response:
         path="/",
     )
     return response
+
+
+class PrincipalResponse(BaseModel):
+    """Non-secret identity and tenant context established by authentication."""
+
+    subject: str
+    organization_id: str
+    display_name: str
+    email: str | None
+    roles: list[str]
+    auth_method: str
+    is_authenticated: bool
+
+
+@router.get("/me", response_model=PrincipalResponse)
+async def get_authenticated_principal(
+    principal: RequestPrincipal = Depends(get_current_principal),
+) -> PrincipalResponse:
+    """Return the verified principal used for authorization and auditing."""
+    return PrincipalResponse(
+        subject=principal.subject,
+        organization_id=principal.organization_id,
+        display_name=principal.display_name,
+        email=principal.email,
+        roles=sorted(principal.roles),
+        auth_method=principal.auth_method,
+        is_authenticated=principal.is_authenticated,
+    )

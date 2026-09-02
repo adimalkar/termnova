@@ -48,6 +48,7 @@ class RequestCorrelationMiddleware(BaseHTTPMiddleware):
 
         # Log access event if not health check polling
         if not request.url.path.endswith("/health"):
+            principal = getattr(request.state, "principal", None)
             logger.info(
                 "HTTP Request",
                 method=request.method,
@@ -55,6 +56,8 @@ class RequestCorrelationMiddleware(BaseHTTPMiddleware):
                 status=response.status_code,
                 duration_ms=duration_ms,
                 request_id=req_id,
+                organization_id=getattr(principal, "organization_id", None),
+                auth_method=getattr(principal, "auth_method", None),
             )
 
         return response
@@ -70,7 +73,10 @@ class APIAuthenticationMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:
         login_request = request.url.path == "/api/v1/auth/session" and request.method == "POST"
-        if request.url.path.startswith("/api/v1/") and not login_request:
+        # OIDC clients present a bearer token, which this header/cookie boundary cannot
+        # validate; get_current_principal enforces those routes instead.
+        oidc_mode = self.settings.effective_auth_mode == "oidc"
+        if request.url.path.startswith("/api/v1/") and not login_request and not oidc_mode:
             try:
                 identity = authenticate_request(
                     request.headers.get("x-api-key"),

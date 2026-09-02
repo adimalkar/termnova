@@ -100,7 +100,7 @@ Conversely, naive single-pass RAG systems frequently hallucinate terms, lose cla
 | 🏷️ **Source-Linked Citations** | Generated `[Source N]` tags map to document filename, page number, and chunk excerpts for reviewer verification; citation presence is not a correctness guarantee. |
 | 🛡️ **Responsible AI Guardrails** | Propositional claim entailment audit, sensitive PII redaction (SSNs, emails, phone numbers), and composite confidence scoring. |
 | 🌐 **WebSocket Live Streaming** | Bidirectional WebSocket channel (`/ws/query`, `/ws/notifications`) with real-time token streaming and ingestion progress alerts. |
-| 🔒 **Current Security Controls** | SlowAPI rate limiting and optional API-key checks. Enterprise OIDC/SAML, SCIM, tenant isolation, and RBAC remain roadmap requirements and are not claimed here. |
+| 🔒 **Current Security Controls** | SlowAPI rate limiting plus an optional verified [OIDC/JWKS or service-key request-principal boundary](docs/authentication.md). OIDC activation, SAML/SCIM, membership-backed RBAC, and database tenant isolation remain deployment/roadmap work and are not claimed here. |
 
 ---
 

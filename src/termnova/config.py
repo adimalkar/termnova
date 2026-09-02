@@ -151,19 +151,95 @@ class Settings(BaseSettings):
     )
 
     # ── Security & Rate Limiting (v2) ──
+    AUTH_MODE: Literal["disabled", "api_key", "oidc"] = Field(
+        default="disabled",
+        description="Request authentication mode; disabled is intended for local development only",
+    )
     REQUIRE_AUTH: bool = Field(
         default=False,
-        description="Require X-API-Key authentication for protected inference routes",
+        description="Enables api_key mode when AUTH_MODE is disabled; required in production",
     )
     API_KEY: SecretStr | None = Field(
         default=None,
-        description="High-entropy API key for protected inference operations",
+        description="High-entropy interim service API key; prefer OIDC for interactive access",
     )
     BROWSER_SESSION_TTL_SECONDS: int = Field(
         default=28800,
         ge=300,
         le=86400,
         description="Lifetime of the signed browser session cookie",
+    )
+    API_KEY_SUBJECT: str = Field(
+        default="termnova-service-account",
+        description="Stable subject represented by the interim service API key",
+    )
+    API_KEY_DISPLAY_NAME: str = Field(
+        default="Termnova Service Account",
+        description="Display name represented by the interim service API key",
+    )
+    API_KEY_ORGANIZATION_ID: str = Field(
+        default="local",
+        description="Organization represented by the interim service API key",
+    )
+    API_KEY_ROLES: str = Field(
+        default="service",
+        description="Comma-separated roles represented by the interim service API key",
+    )
+    OIDC_ISSUER: str | None = Field(
+        default=None,
+        description="Exact OpenID Connect issuer expected in bearer tokens",
+    )
+    OIDC_AUDIENCE: str | None = Field(
+        default=None,
+        description="Audience required in OpenID Connect bearer tokens",
+    )
+    OIDC_JWKS_URL: str | None = Field(
+        default=None,
+        description="Optional explicit JWKS URL; otherwise discovered from the issuer",
+    )
+    OIDC_ALLOWED_ALGORITHMS: str = Field(
+        default="RS256",
+        description="Comma-separated asymmetric JWT signing algorithms",
+    )
+    OIDC_ORGANIZATION_CLAIM: str = Field(
+        default="org_id",
+        description="JWT claim containing the external organization identifier",
+    )
+    OIDC_ROLES_CLAIM: str = Field(
+        default="roles",
+        description="JWT claim containing organization roles",
+    )
+    OIDC_NAME_CLAIM: str = Field(
+        default="name",
+        description="JWT claim containing the actor display name",
+    )
+    OIDC_EMAIL_CLAIM: str = Field(
+        default="email",
+        description="JWT claim containing the actor email address",
+    )
+    OIDC_JWKS_CACHE_TTL_SECONDS: int = Field(
+        default=300,
+        ge=30,
+        le=86400,
+        description="OIDC discovery and signing-key cache lifetime",
+    )
+    OIDC_JWKS_MIN_REFRESH_INTERVAL_SECONDS: int = Field(
+        default=10,
+        ge=1,
+        le=300,
+        description="Minimum interval between forced JWKS refreshes for unknown key IDs",
+    )
+    OIDC_HTTP_TIMEOUT_SECONDS: float = Field(
+        default=5.0,
+        gt=0,
+        le=30,
+        description="Timeout for OIDC discovery and JWKS requests",
+    )
+    OIDC_CLOCK_SKEW_SECONDS: int = Field(
+        default=30,
+        ge=0,
+        le=300,
+        description="Allowed JWT clock skew for time-based claim validation",
     )
     RATE_LIMIT_DEFAULT: str = Field(
         default="60/minute",
@@ -224,14 +300,16 @@ class Settings(BaseSettings):
     def validate_production_security(self) -> "Settings":
         """Fail closed when a production deployment lacks inference authentication."""
         production = self.APP_ENV.strip().casefold() == "production"
-        if production and not self.REQUIRE_AUTH:
-            raise ValueError("REQUIRE_AUTH must be enabled in production")
+        if production and self.effective_auth_mode == "disabled":
+            raise ValueError(
+                "Production requires AUTH_MODE=oidc, AUTH_MODE=api_key, or REQUIRE_AUTH"
+            )
         if production and "*" in self.CORS_ORIGINS:
             raise ValueError("CORS_ORIGINS must use explicit trusted origins in production")
         if production and self.AUTO_SEED_DEMO_CONTRACTS:
             raise ValueError("AUTO_SEED_DEMO_CONTRACTS cannot be enabled in production")
 
-        if self.REQUIRE_AUTH:
+        if self.effective_auth_mode == "api_key":
             value = self.API_KEY.get_secret_value() if self.API_KEY else ""
             if len(value) < 32:
                 raise ValueError("API_KEY must contain at least 32 characters when auth is enabled")
@@ -258,6 +336,13 @@ class Settings(BaseSettings):
         path = Path(self.UPLOAD_DIR)
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    @property
+    def effective_auth_mode(self) -> Literal["disabled", "api_key", "oidc"]:
+        """Resolve the explicit auth mode while honoring the legacy REQUIRE_AUTH flag."""
+        if self.AUTH_MODE == "disabled" and self.REQUIRE_AUTH:
+            return "api_key"
+        return self.AUTH_MODE
 
 
 @lru_cache(maxsize=1)
