@@ -15,6 +15,7 @@ from termnova.api.routes.operations import router as operations_router
 from termnova.api.routes.organizations import router as organizations_router
 from termnova.api.routes.query import router as query_router
 from termnova.api.routes.triage_rules import router as triage_rules_router
+from termnova.api.routes.verification import router as verification_router
 from termnova.api.routes.workspaces import router as workspaces_router
 
 __all__ = [
@@ -31,6 +32,7 @@ __all__ = [
     "workspaces_router",
     "inbox_router",
     "triage_rules_router",
+    "verification_router",
     "negotiations_router",
     "organizations_router",
     "operations_router",
