@@ -21,6 +21,7 @@ from termnova.api.dependencies import (
     get_db_session,
     get_repository,
     get_settings,
+    get_tenant_context,
 )
 from termnova.api.schemas import (
     DocumentListResponse,
@@ -31,6 +32,7 @@ from termnova.api.schemas import (
 from termnova.config import Settings
 from termnova.db.repository import ContractRepository
 from termnova.pipeline.celery_app import celery_app
+from termnova.security.tenancy import TenantContext, record_audit_event, require_permission
 from termnova.storage import DocumentStorage
 
 logger = structlog.get_logger(__name__)
@@ -39,9 +41,15 @@ router = APIRouter(prefix="/api/v1/documents", tags=["Document Management"])
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".md"}
 
 
-@router.post("/upload", response_model=UploadResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/upload",
+    response_model=UploadResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_permission("document:write"))],
+)
 async def upload_contract(
     file: UploadFile = File(...),
+    tenant: TenantContext = Depends(get_tenant_context),
     session: AsyncSession = Depends(get_db_session),
     settings: Settings = Depends(get_settings),
 ) -> UploadResponse:
@@ -90,24 +98,33 @@ async def upload_contract(
         file_size_bytes=len(content),
         file_hash=file_hash,
     )
-    object_key = f"contracts/{doc.id}/{safe_filename}"
+    object_key = f"organizations/{tenant.organization_id}/contracts/{doc.id}/{safe_filename}"
     doc.metadata_ = {**doc.metadata_, "storage_key": object_key}
     storage = DocumentStorage(settings)
     try:
         await storage.put(object_key, content)
+        await record_audit_event(
+            session,
+            tenant,
+            action="document.uploaded",
+            resource_type="document",
+            resource_id=str(doc.id),
+            details={"filename": safe_filename, "sha256": file_hash},
+        )
         await session.commit()
         if settings.APP_ENV == "test":
             from termnova.pipeline.tasks import ingest_document_task
 
             task = await asyncio.to_thread(
                 ingest_document_task.apply,
-                args=[object_key, str(doc.id)],
+                args=[object_key, str(doc.id), str(doc.organization_id)],
             )
             if task.failed():
                 raise RuntimeError(str(task.result))
         else:
             task = celery_app.send_task(
-                "termnova.pipeline.tasks.ingest_document_task", args=[object_key, str(doc.id)]
+                "termnova.pipeline.tasks.ingest_document_task",
+                args=[object_key, str(doc.id), str(doc.organization_id)],
             )
     except Exception as exc:
         await session.rollback()
@@ -198,9 +215,14 @@ async def get_contract_detail(
     )
 
 
-@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("document:write"))],
+)
 async def delete_contract(
     document_id: uuid.UUID,
+    tenant: TenantContext = Depends(get_tenant_context),
     repo: ContractRepository = Depends(get_repository),
     settings: Settings = Depends(get_settings),
 ):
@@ -213,6 +235,14 @@ async def delete_contract(
             detail=f"Document {document_id} not found for deletion.",
         )
     object_key = (document.metadata_ or {}).get("storage_key") if document else None
+    await record_audit_event(
+        repo.session,
+        tenant,
+        action="document.deleted",
+        resource_type="document",
+        resource_id=str(document_id),
+        details={"storage_key": object_key},
+    )
     if object_key:
         try:
             await DocumentStorage(settings).delete(object_key)
@@ -221,7 +251,11 @@ async def delete_contract(
     return None
 
 
-@router.post("/seed", summary="Ingest authentic commercial contracts dataset into database")
+@router.post(
+    "/seed",
+    summary="Ingest authentic commercial contracts dataset into database",
+    dependencies=[Depends(require_permission("tenant:admin"))],
+)
 async def seed_documents(
     limit: int = Query(30, ge=1, le=100, description="Number of contracts to index"),
     force: bool = Query(False, description="Force re-indexing of already existing files"),

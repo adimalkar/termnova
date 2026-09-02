@@ -8,9 +8,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from termnova import __version__
-from termnova.api.dependencies import get_db_session, get_redis_client, get_settings
+from termnova.api.dependencies import get_redis_client, get_settings
 from termnova.api.schemas import HealthResponse
 from termnova.config import Settings
+from termnova.db.connection import get_db_session
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["System"])
