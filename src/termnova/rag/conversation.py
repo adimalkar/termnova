@@ -38,7 +38,7 @@ class ConversationMemory:
         stmt = (
             select(QueryLog)
             .where(QueryLog.conversation_id == conversation_id)
-            .order_by(QueryLog.created_at.asc())
+            .order_by(QueryLog.created_at.asc(), QueryLog.id.asc())
             .limit(self.max_turns)
         )
         result = await self.session.execute(stmt)
