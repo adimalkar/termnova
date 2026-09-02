@@ -276,6 +276,24 @@ class Settings(BaseSettings):
     STORAGE_REGION: str = Field(default="us-east-1", description="Object storage region")
     STORAGE_ACCESS_KEY_ID: str | None = Field(default=None)
     STORAGE_SECRET_ACCESS_KEY: str | None = Field(default=None)
+    STORAGE_SSE_ALGORITHM: Literal["AES256", "aws:kms"] = Field(
+        default="AES256", description="Server-side encryption requested for stored objects"
+    )
+    STORAGE_KMS_KEY_ID: str | None = Field(
+        default=None, description="Customer or platform KMS key when STORAGE_SSE_ALGORITHM=aws:kms"
+    )
+    STORAGE_SIGNED_URL_TTL_SECONDS: int = Field(default=300, ge=30, le=3600)
+    MALWARE_SCAN_MODE: Literal["disabled", "clamav"] = Field(
+        default="disabled",
+        description="Upload malware scanner; clamav is required for secure intake",
+    )
+    CLAMAV_HOST: str = Field(default="localhost")
+    CLAMAV_PORT: int = Field(default=3310, ge=1, le=65535)
+    CLAMAV_TIMEOUT_SECONDS: float = Field(default=10.0, gt=0, le=120)
+    SECURE_UPLOADS_REQUIRED: bool = Field(
+        default=False,
+        description="Fail startup unless S3-compatible storage and malware scanning are configured",
+    )
     MAX_UPLOAD_SIZE_MB: int = Field(
         default=50, description="Maximum allowed file upload size in MB"
     )

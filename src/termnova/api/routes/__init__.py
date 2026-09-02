@@ -2,6 +2,7 @@ from termnova.api.routes.analytics import router as analytics_router
 from termnova.api.routes.auth import router as auth_router
 from termnova.api.routes.desk import router as desk_router
 from termnova.api.routes.documents import router as documents_router
+from termnova.api.routes.governance import router as governance_router
 from termnova.api.routes.graph import router as graph_router
 from termnova.api.routes.health import router as health_router
 from termnova.api.routes.inbox import router as inbox_router
@@ -20,6 +21,7 @@ __all__ = [
     "documents_router",
     "analytics_router",
     "graph_router",
+    "governance_router",
     "workspaces_router",
     "inbox_router",
     "triage_rules_router",
