@@ -8,7 +8,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from termnova.api.dependencies import get_db, get_redis_client
+from termnova.api.dependencies import get_db, get_redis_client, get_tenant_context
 from termnova.intelligence.aggregator import PortfolioAggregator
 from termnova.intelligence.cache import IntelligenceCache
 from termnova.intelligence.schemas import (
@@ -19,6 +19,7 @@ from termnova.intelligence.schemas import (
     TrendData,
     VendorScorecard,
 )
+from termnova.security.tenancy import TenantContext
 
 logger = structlog.get_logger(__name__)
 
@@ -37,10 +38,13 @@ async def get_clause_heatmap(
     counterparty: str | None = Query(None, description="Filter by vendor/counterparty name"),
     db: AsyncSession = Depends(get_db),
     redis_client: aioredis.Redis | None = Depends(get_redis_client),
+    tenant: TenantContext = Depends(get_tenant_context),
 ) -> Any:
     """Retrieve full matrix of documents and standard clause presence/risk levels."""
     params = {"contract_type": contract_type, "counterparty": counterparty}
-    cache_key = IntelligenceCache.build_key("clause-heatmap", params=params)
+    cache_key = IntelligenceCache.build_key(
+        "clause-heatmap", org_id=tenant.organization_id, params=params
+    )
 
     cached = await IntelligenceCache.get(cache_key, redis_client)
     if cached:
@@ -63,10 +67,11 @@ async def get_vendor_scorecard_by_id(
     entity_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     redis_client: aioredis.Redis | None = Depends(get_redis_client),
+    tenant: TenantContext = Depends(get_tenant_context),
 ) -> Any:
     """Compute aggregate portfolio metrics, risk distribution, and clause coverage for a vendor."""
     cache_key = IntelligenceCache.build_key(
-        "vendor-scorecard", params={"entity_id": str(entity_id)}
+        "vendor-scorecard", org_id=tenant.organization_id, params={"entity_id": str(entity_id)}
     )
 
     cached = await IntelligenceCache.get(cache_key, redis_client)
@@ -94,10 +99,13 @@ async def get_vendor_scorecard_by_name(
     vendor_name: str = Query(..., min_length=1, description="Vendor or counterparty name"),
     db: AsyncSession = Depends(get_db),
     redis_client: aioredis.Redis | None = Depends(get_redis_client),
+    tenant: TenantContext = Depends(get_tenant_context),
 ) -> Any:
     """Compute aggregate portfolio metrics for a vendor by searching their name."""
     cache_key = IntelligenceCache.build_key(
-        "vendor-scorecard", params={"vendor_name": vendor_name.lower().strip()}
+        "vendor-scorecard",
+        org_id=tenant.organization_id,
+        params={"vendor_name": vendor_name.lower().strip()},
     )
 
     cached = await IntelligenceCache.get(cache_key, redis_client)
@@ -119,9 +127,12 @@ async def get_document_benchmark(
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     redis_client: aioredis.Redis | None = Depends(get_redis_client),
+    tenant: TenantContext = Depends(get_tenant_context),
 ) -> Any:
     """Rank a specific contract against portfolio percentiles for safety and coverage."""
-    cache_key = IntelligenceCache.build_key("benchmark", params={"document_id": str(document_id)})
+    cache_key = IntelligenceCache.build_key(
+        "benchmark", org_id=tenant.organization_id, params={"document_id": str(document_id)}
+    )
 
     cached = await IntelligenceCache.get(cache_key, redis_client)
     if cached:
@@ -148,10 +159,11 @@ async def get_portfolio_trends(
     months: int = Query(12, ge=1, le=60, description="Rolling months window"),
     db: AsyncSession = Depends(get_db),
     redis_client: aioredis.Redis | None = Depends(get_redis_client),
+    tenant: TenantContext = Depends(get_tenant_context),
 ) -> Any:
     """Retrieve time-series risk, contract value, or compliance trends across the portfolio."""
     params = {"metric": metric, "period": period, "months": months}
-    cache_key = IntelligenceCache.build_key("trends", params=params)
+    cache_key = IntelligenceCache.build_key("trends", org_id=tenant.organization_id, params=params)
 
     cached = await IntelligenceCache.get(cache_key, redis_client)
     if cached:
@@ -175,10 +187,11 @@ async def get_contract_gaps(
     ),
     db: AsyncSession = Depends(get_db),
     redis_client: aioredis.Redis | None = Depends(get_redis_client),
+    tenant: TenantContext = Depends(get_tenant_context),
 ) -> Any:
     """Scan the repository for agreements missing critical baseline playbook provisions."""
     params = {"contract_type": contract_type, "severity": severity}
-    cache_key = IntelligenceCache.build_key("gaps", params=params)
+    cache_key = IntelligenceCache.build_key("gaps", org_id=tenant.organization_id, params=params)
 
     cached = await IntelligenceCache.get(cache_key, redis_client)
     if cached:
@@ -198,9 +211,10 @@ async def get_contract_gaps(
 async def get_portfolio_summary(
     db: AsyncSession = Depends(get_db),
     redis_client: aioredis.Redis | None = Depends(get_redis_client),
+    tenant: TenantContext = Depends(get_tenant_context),
 ) -> Any:
     """Fetch high-level portfolio overview, total value, average risk, and critical risk alerts."""
-    cache_key = IntelligenceCache.build_key("summary")
+    cache_key = IntelligenceCache.build_key("summary", org_id=tenant.organization_id)
 
     cached = await IntelligenceCache.get(cache_key, redis_client)
     if cached:
