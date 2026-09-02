@@ -11,13 +11,16 @@ from termnova.db.connection import create_async_engine
 from termnova.pipeline.celery_app import celery_app
 from termnova.pipeline.embedder import EmbeddingService
 from termnova.pipeline.ingestion import IngestionPipeline
+from termnova.security.tenancy import apply_organization_context
 from termnova.storage import DocumentStorage
 
 logger = structlog.get_logger(__name__)
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=5)
-def ingest_document_task(self, storage_key: str, document_id_str: str) -> dict:
+def ingest_document_task(
+    self, storage_key: str, document_id_str: str, organization_id_str: str
+) -> dict:
     """Background task processing and vectorizing an uploaded contract."""
     settings = get_settings()
 
@@ -31,6 +34,11 @@ def ingest_document_task(self, storage_key: str, document_id_str: str) -> dict:
         suffix = Path(storage_key).suffix
         file_path, remove_after = await storage.materialize(storage_key, suffix=suffix)
         async with session_maker() as session:
+            await apply_organization_context(
+                session,
+                uuid.UUID(organization_id_str),
+                actor_subject="celery:ingest_document",
+            )
             embedder = EmbeddingService(settings)
             pipeline = IngestionPipeline(session, embedder, settings)
             document_id = uuid.UUID(document_id_str)
@@ -42,7 +50,7 @@ def ingest_document_task(self, storage_key: str, document_id_str: str) -> dict:
                     import redis.asyncio as aioredis
 
                     redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
-                    await redis.incr("rag:corpus_version")
+                    await redis.incr(f"rag:corpus_version:{organization_id_str}")
                     await redis.aclose()
                 except Exception as cache_error:
                     logger.warning("Corpus cache version update failed", error=str(cache_error))
@@ -87,7 +95,7 @@ def ingest_directory_task(directory_path_str: str) -> dict:
 
     settings = get_settings()
 
-    async def _prepare() -> list[tuple[Path, str, str]]:
+    async def _prepare() -> list[tuple[Path, str, str, str]]:
         from sqlalchemy.ext.asyncio import async_sessionmaker
 
         from termnova.db.repository import ContractRepository
@@ -95,8 +103,20 @@ def ingest_directory_task(directory_path_str: str) -> dict:
         engine = create_async_engine(settings)
         session_maker = async_sessionmaker(engine, expire_on_commit=False)
         storage = DocumentStorage(settings)
-        prepared: list[tuple[Path, str, str]] = []
+        prepared: list[tuple[Path, str, str, str]] = []
         async with session_maker() as session:
+            from sqlalchemy import select
+
+            from termnova.db.models import Organization
+
+            organization = (
+                await session.execute(
+                    select(Organization).where(Organization.external_id == "local")
+                )
+            ).scalar_one()
+            await apply_organization_context(
+                session, organization.id, actor_subject="celery:ingest_directory"
+            )
             for file in files:
                 key = f"batch/{uuid.uuid4()}/{file.name}"
                 await storage.put(key, file.read_bytes())
@@ -106,14 +126,14 @@ def ingest_directory_task(directory_path_str: str) -> dict:
                     file_size_bytes=file.stat().st_size,
                     metadata={"storage_key": key},
                 )
-                prepared.append((file, key, str(doc.id)))
+                prepared.append((file, key, str(doc.id), str(doc.organization_id)))
             await session.commit()
         await engine.dispose()
         return prepared
 
     dispatched = []
-    for file, key, document_id in asyncio.run(_prepare()):
-        task = ingest_document_task.delay(key, document_id)
+    for file, key, document_id, organization_id in asyncio.run(_prepare()):
+        task = ingest_document_task.delay(key, document_id, organization_id)
         dispatched.append({"file": file.name, "document_id": document_id, "task_id": task.id})
 
     return {
