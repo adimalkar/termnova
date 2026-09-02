@@ -48,14 +48,16 @@ class ContractRepository:
         stmt = (
             select(Document)
             .options(selectinload(Document.chunks))
-            .where(Document.id == document_id)
+            .where(Document.id == document_id, Document.deleted_at.is_(None))
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_document_by_hash(self, file_hash: str) -> Document | None:
         """Fetch a document by its unique content hash for deduplication."""
-        stmt = select(Document).where(Document.file_hash == file_hash)
+        stmt = select(Document).where(
+            Document.file_hash == file_hash, Document.deleted_at.is_(None)
+        )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -66,7 +68,11 @@ class ContractRepository:
         offset: int = 0,
     ) -> list[Document]:
         """List documents with optional status filter and pagination."""
-        stmt = select(Document).options(selectinload(Document.chunks))
+        stmt = (
+            select(Document)
+            .options(selectinload(Document.chunks))
+            .where(Document.deleted_at.is_(None))
+        )
         if status:
             stmt = stmt.where(Document.processing_status == status)
         stmt = stmt.order_by(desc(Document.created_at)).limit(limit).offset(offset)
@@ -75,7 +81,7 @@ class ContractRepository:
 
     async def count_documents(self, status: str | None = None) -> int:
         """Count total documents matching filter."""
-        stmt = select(func.count(Document.id))
+        stmt = select(func.count(Document.id)).where(Document.deleted_at.is_(None))
         if status:
             stmt = stmt.where(Document.processing_status == status)
         result = await self.session.execute(stmt)
@@ -107,7 +113,8 @@ class ContractRepository:
         """Delete a document and all related chunks (via cascade)."""
         doc = await self.get_document(document_id)
         if doc:
-            await self.session.delete(doc)
+            doc.deleted_at = datetime.now(UTC)
+            doc.processing_status = "deleted"
             await self.session.flush()
             return True
         return False
