@@ -8,13 +8,15 @@ from httpx import AsyncClient
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_health_check_endpoint(api_client: AsyncClient):
+async def test_health_check_endpoint(api_client: AsyncClient, monkeypatch):
     """Verify that /health reports system status, version, and component states."""
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "a" * 40)
     resp = await api_client.get("/health")
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "healthy"
     assert data["version"] == "0.2.0"
+    assert data["commit_sha"] == "a" * 40
     assert "database" in data
     assert "redis" in data
 

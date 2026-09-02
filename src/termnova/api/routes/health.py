@@ -1,5 +1,6 @@
 """Health check and service status endpoints."""
 
+import os
 from datetime import UTC, datetime
 
 import structlog
@@ -44,6 +45,7 @@ async def health_check(
     return HealthResponse(
         status=overall,
         version=__version__,
+        commit_sha=os.getenv("RENDER_GIT_COMMIT"),
         database=db_status,
         redis=redis_status,
         llm_provider=settings.LLM_PROVIDER,

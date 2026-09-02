@@ -226,6 +226,7 @@ class HealthResponse(BaseModel):
 
     status: str
     version: str = "0.2.0"
+    commit_sha: str | None = None
     database: str = "healthy"
     redis: str = "healthy"
     llm_provider: str = "openai"
