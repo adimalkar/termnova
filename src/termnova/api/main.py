@@ -25,6 +25,7 @@ from termnova.api.routes import (
     inbox_router,
     intelligence_router,
     negotiations_router,
+    operations_router,
     organizations_router,
     query_router,
     triage_rules_router,
@@ -37,6 +38,7 @@ from termnova.db.connection import close_db, init_db
 from termnova.observability.tracing import setup_tracing
 from termnova.rag.guardrails import GuardrailViolationError
 from termnova.security.auth import OIDCVerifier, get_current_principal, validate_auth_configuration
+from termnova.security.limits import enforce_tenant_request_budget
 from termnova.security.rate_limiter import custom_rate_limit_exceeded_handler, limiter
 from termnova.security.tenancy import require_permission
 
@@ -119,10 +121,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
 
-    protected_dependencies = [Depends(get_current_principal), Depends(get_tenant_context)]
+    protected_dependencies = [
+        Depends(get_current_principal),
+        Depends(get_tenant_context),
+        Depends(enforce_tenant_request_budget),
+    ]
     protected_routers = (
         (organizations_router, "audit:read"),
         (governance_router, "tenant:admin"),
+        (operations_router, "tenant:admin"),
         (desk_router, "document:read"),
         (query_router, "query:run"),
         (documents_router, "document:read"),

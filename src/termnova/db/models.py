@@ -186,6 +186,107 @@ class DeletionRequest(TenantOwned, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class ProcessingSnapshot(TenantOwned, Base):
+    """Immutable parser, model, prompt, and schema provenance for derived results."""
+
+    __tablename__ = "processing_snapshots"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "fingerprint", name="uq_org_snapshot_fingerprint"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    components: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class BackgroundJob(TenantOwned, Base):
+    """Durable idempotent job state independent of broker result retention."""
+
+    __tablename__ = "background_jobs"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "idempotency_key", name="uq_org_job_idempotency"),
+        UniqueConstraint("organization_id", "task_id", name="uq_org_job_task"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    job_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    processing_snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("processing_snapshots.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DeadLetter(TenantOwned, Base):
+    """Failed job payload retained for audited operator replay."""
+
+    __tablename__ = "dead_letters"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("background_jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    replay_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    replayed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class OutboxEvent(TenantOwned, Base):
+    """Transactional event awaiting idempotent broker publication."""
+
+    __tablename__ = "outbox_events"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "event_key", name="uq_org_outbox_event_key"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    topic: Mapped[str] = mapped_column(String(120), nullable=False)
+    event_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class OrganizationUsagePolicy(TenantOwned, Base):
+    """Tenant-specific concurrency and monthly consumption guardrails."""
+
+    __tablename__ = "organization_usage_policies"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    max_concurrent_jobs: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
+    monthly_token_budget: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    monthly_cost_budget_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    requests_per_minute: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class Document(TenantOwned, Base):
     """Enterprise contract document metadata and processing status."""
 

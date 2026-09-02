@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "minimum_samples": 30,
+  "minimum_overall": {
+    "faithfulness": 0.70,
+    "answer_relevance": 0.60,
+    "context_precision": 0.60,
+    "context_recall": 0.70,
+    "pass_rate": 0.75
+  },
+  "required_slices": [
+    "contract_type",
+    "obligation_type",
+    "language",
+    "scan_quality",
+    "risk_tier"
+  ]
+}
