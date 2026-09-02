@@ -246,8 +246,8 @@ async def upload_contract(
                 args=[object_key, str(doc.id), str(doc.organization_id), str(job.id)],
                 task_id=job.task_id,
             )
-            if task.failed():
-                raise RuntimeError(str(task.result))
+            if not task.successful():
+                raise RuntimeError(f"Local ingestion ended in {task.state}: {task.result}")
         else:
             task = celery_app.send_task(
                 "termnova.pipeline.tasks.ingest_document_task",
