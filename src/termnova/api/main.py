@@ -18,6 +18,7 @@ from termnova.api.routes import (
     auth_router,
     desk_router,
     documents_router,
+    governance_router,
     graph_router,
     health_router,
     inbox_router,
@@ -73,6 +74,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure the production FastAPI application."""
     cfg = settings or get_settings()
     validate_auth_configuration(cfg)
+    if cfg.SECURE_UPLOADS_REQUIRED:
+        if cfg.STORAGE_BACKEND != "s3" or not cfg.STORAGE_BUCKET:
+            raise ValueError("Secure uploads require configured S3-compatible object storage")
+        if cfg.MALWARE_SCAN_MODE != "clamav":
+            raise ValueError("Secure uploads require MALWARE_SCAN_MODE=clamav")
 
     app = FastAPI(
         title="Termnova API",
@@ -109,6 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     protected_routers = (
         (auth_router, None),
         (organizations_router, "audit:read"),
+        (governance_router, "tenant:admin"),
         (desk_router, "document:read"),
         (query_router, "query:run"),
         (documents_router, "document:read"),

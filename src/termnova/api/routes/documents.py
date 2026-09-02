@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
@@ -15,6 +16,8 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.responses import Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from termnova.api.dependencies import (
@@ -30,15 +33,17 @@ from termnova.api.schemas import (
     UploadResponse,
 )
 from termnova.config import Settings
+from termnova.db.models import DeletionRequest, StoredObject
 from termnova.db.repository import ContractRepository
 from termnova.pipeline.celery_app import celery_app
+from termnova.security.intake import MalwareScanner, validate_content_type
 from termnova.security.tenancy import TenantContext, record_audit_event, require_permission
 from termnova.storage import DocumentStorage
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/documents", tags=["Document Management"])
 
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".md"}
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 
 
 @router.post(
@@ -80,6 +85,11 @@ async def upload_contract(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty."
         )
 
+    try:
+        detected_mime = validate_content_type(safe_filename, content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     repo = ContractRepository(session)
     file_hash = hashlib.sha256(content).hexdigest()
     existing = await repo.get_document_by_hash(file_hash)
@@ -97,12 +107,40 @@ async def upload_contract(
         file_type=ext.lstrip("."),
         file_size_bytes=len(content),
         file_hash=file_hash,
+        metadata={"mime_type": detected_mime},
     )
-    object_key = f"organizations/{tenant.organization_id}/contracts/{doc.id}/{safe_filename}"
-    doc.metadata_ = {**doc.metadata_, "storage_key": object_key}
+    base_key = f"organizations/{tenant.organization_id}/contracts/{doc.id}"
+    quarantine_key = f"{base_key}/quarantine/{safe_filename}"
+    object_key = f"{base_key}/original/{safe_filename}"
+    doc.metadata_ = {**doc.metadata_, "storage_key": object_key, "mime_type": detected_mime}
     storage = DocumentStorage(settings)
     try:
-        await storage.put(object_key, content)
+        await storage.put(
+            quarantine_key,
+            content,
+            metadata={"intake-status": "quarantined", "sha256": file_hash},
+        )
+        scan = await MalwareScanner(settings).scan(content)
+        if not scan.clean:
+            await storage.delete(quarantine_key)
+            raise HTTPException(status_code=422, detail="Upload rejected by malware scanner")
+        await storage.move(quarantine_key, object_key)
+        stored_object = StoredObject(
+            organization_id=tenant.organization_id,
+            document_id=doc.id,
+            object_key=object_key,
+            object_kind="original",
+            sha256=file_hash,
+            mime_type=detected_mime,
+            size_bytes=len(content),
+            scan_status="clean" if scan.engine != "disabled" else "not_scanned",
+            scan_engine=scan.engine,
+            scan_details={"result": scan.details},
+            encryption=settings.STORAGE_SSE_ALGORITHM
+            if settings.STORAGE_BACKEND == "s3"
+            else "filesystem",
+        )
+        session.add(stored_object)
         await record_audit_event(
             session,
             tenant,
@@ -126,6 +164,11 @@ async def upload_contract(
                 "termnova.pipeline.tasks.ingest_document_task",
                 args=[object_key, str(doc.id), str(doc.organization_id)],
             )
+    except HTTPException:
+        await session.rollback()
+        await storage.delete(quarantine_key)
+        await storage.delete(object_key)
+        raise
     except Exception as exc:
         await session.rollback()
         await repo.delete_document(doc.id)
@@ -143,6 +186,41 @@ async def upload_contract(
         status="pending",
         task_id=task.id,
         message="Contract stored and queued for background parsing and indexing.",
+    )
+
+
+@router.get(
+    "/{document_id}/download",
+    dependencies=[Depends(require_permission("document:read"))],
+)
+async def download_original(
+    document_id: uuid.UUID,
+    repo: ContractRepository = Depends(get_repository),
+    settings: Settings = Depends(get_settings),
+):
+    """Download an original through a tenant check or a short-lived signed URL."""
+    document = await repo.get_document(document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    result = await repo.session.execute(
+        select(StoredObject).where(
+            StoredObject.document_id == document_id,
+            StoredObject.object_kind == "original",
+            StoredObject.deleted_at.is_(None),
+        )
+    )
+    stored_object = result.scalar_one_or_none()
+    if stored_object is None:
+        raise HTTPException(status_code=404, detail="Original object not found")
+    storage = DocumentStorage(settings)
+    signed_url = await storage.signed_download_url(stored_object.object_key)
+    if signed_url:
+        return {"url": signed_url, "expires_in": settings.STORAGE_SIGNED_URL_TTL_SECONDS}
+    content = await storage.get(stored_object.object_key)
+    return Response(
+        content=content,
+        media_type=stored_object.mime_type,
+        headers={"Content-Disposition": f'attachment; filename="{document.filename}"'},
     )
 
 
@@ -228,6 +306,50 @@ async def delete_contract(
 ):
     """Delete a contract and its associated vector chunks from the database."""
     document = await repo.get_document(document_id)
+    objects = list(
+        (
+            await repo.session.execute(
+                select(StoredObject).where(
+                    StoredObject.document_id == document_id,
+                    StoredObject.deleted_at.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    now = datetime.now(UTC)
+    blocked = next(
+        (
+            item
+            for item in objects
+            if item.legal_hold or (item.retention_until and item.retention_until > now)
+        ),
+        None,
+    )
+    if blocked:
+        deletion = DeletionRequest(
+            organization_id=tenant.organization_id,
+            resource_type="document",
+            resource_id=str(document_id),
+            requested_by=tenant.subject,
+            reason="API deletion request",
+            status="blocked",
+            blocked_reason="legal_hold" if blocked.legal_hold else "retention_period",
+        )
+        repo.session.add(deletion)
+        await record_audit_event(
+            repo.session,
+            tenant,
+            action="document.deletion_blocked",
+            resource_type="document",
+            resource_id=str(document_id),
+            details={"reason": deletion.blocked_reason},
+        )
+        await repo.session.commit()
+        raise HTTPException(
+            status_code=409, detail=f"Deletion blocked by {deletion.blocked_reason}"
+        )
     success = await repo.delete_document(document_id)
     if not success:
         raise HTTPException(
@@ -243,11 +365,15 @@ async def delete_contract(
         resource_id=str(document_id),
         details={"storage_key": object_key},
     )
-    if object_key:
+    storage = DocumentStorage(settings)
+    for stored_object in objects:
         try:
-            await DocumentStorage(settings).delete(object_key)
+            await storage.delete(stored_object.object_key)
+            stored_object.deleted_at = now
         except Exception as exc:
-            logger.warning("Original object deletion failed", key=object_key, error=str(exc))
+            logger.warning(
+                "Original object deletion failed", key=stored_object.object_key, error=str(exc)
+            )
     return None
 
 

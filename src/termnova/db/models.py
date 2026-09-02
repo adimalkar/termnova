@@ -119,6 +119,73 @@ class AuditEvent(Base):
     )
 
 
+class RetentionPolicy(TenantOwned, Base):
+    """Organization policy controlling deletion eligibility and evidence retention."""
+
+    __tablename__ = "retention_policies"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    retain_days: Mapped[int] = mapped_column(Integer, nullable=False, default=2555)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    applies_to: Mapped[list[str]] = mapped_column(
+        ARRAY(String), default=list, server_default="{}", nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class StoredObject(TenantOwned, Base):
+    """Governed object-storage inventory for originals and derived evidence."""
+
+    __tablename__ = "stored_objects"
+    __table_args__ = (UniqueConstraint("organization_id", "object_key", name="uq_org_object_key"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    object_key: Mapped[str] = mapped_column(String(1000), nullable=False)
+    object_kind: Mapped[str] = mapped_column(String(40), nullable=False, default="original")
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    scan_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    scan_engine: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    scan_details: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+    encryption: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    legal_hold: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class DeletionRequest(TenantOwned, Base):
+    """Auditable deletion request with retention and legal-hold disposition."""
+
+    __tablename__ = "deletion_requests"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    resource_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    resource_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    requested_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    blocked_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class Document(TenantOwned, Base):
     """Enterprise contract document metadata and processing status."""
 
