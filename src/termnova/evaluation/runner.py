@@ -194,6 +194,11 @@ def main() -> None:
     parser.add_argument(
         "--output", default="docs/evaluation-report.md", help="Output markdown report path"
     )
+    parser.add_argument(
+        "--thresholds",
+        default=None,
+        help="Optional release-threshold JSON; exits non-zero on regression",
+    )
     args = parser.parse_args()
 
     runner = EvaluationRunner(dataset_path=args.dataset)
@@ -211,6 +216,14 @@ def main() -> None:
     print(f"Mean Query Latency        : {report.avg_latency_ms:.1f} ms")
     print("=" * 60)
     print(f"Full report exported to: {args.output}\n")
+    if args.thresholds:
+        from termnova.evaluation.gates import evaluate_release_gate
+
+        failures = evaluate_release_gate(report, args.thresholds)
+        if failures:
+            for failure in failures:
+                print(f"RELEASE GATE FAILED: {failure}")
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

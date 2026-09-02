@@ -246,6 +246,9 @@ class Settings(BaseSettings):
         default="10/minute",
         description="Document upload rate limit",
     )
+    TENANT_REQUESTS_PER_MINUTE: int = Field(
+        default=120, ge=1, description="Hard organization request budget enforced in Redis"
+    )
 
     # ── Observability (v2) ──
     OTEL_EXPORTER_OTLP_ENDPOINT: str | None = Field(
