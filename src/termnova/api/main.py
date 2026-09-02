@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import structlog
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -14,6 +14,7 @@ from termnova import __version__
 from termnova.api.middleware import setup_middleware
 from termnova.api.routes import (
     analytics_router,
+    auth_router,
     desk_router,
     documents_router,
     graph_router,
@@ -30,6 +31,7 @@ from termnova.api.routes.ws import router as ws_router
 from termnova.config import Settings, get_settings
 from termnova.db.connection import close_db, init_db
 from termnova.observability.tracing import setup_tracing
+from termnova.security.auth import OIDCVerifier, get_current_principal, validate_auth_configuration
 from termnova.security.rate_limiter import custom_rate_limit_exceeded_handler, limiter
 
 logger = structlog.get_logger(__name__)
@@ -38,7 +40,7 @@ logger = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and graceful shutdown lifecycle."""
-    settings = get_settings()
+    settings: Settings = app.state.settings
     logger.info("Initializing Termnova backend services", env=settings.APP_ENV, version=__version__)
 
     # Initialize Distributed Tracing
@@ -67,6 +69,7 @@ async def lifespan(app: FastAPI):
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure the production FastAPI application."""
     cfg = settings or get_settings()
+    validate_auth_configuration(cfg)
 
     app = FastAPI(
         title="Termnova API",
@@ -77,6 +80,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url="/openapi.json",
         lifespan=lifespan,
     )
+    app.state.settings = cfg
+    app.state.oidc_verifier = OIDCVerifier(cfg) if cfg.effective_auth_mode == "oidc" else None
+
+    if cfg.APP_ENV.lower() == "production" and cfg.effective_auth_mode == "disabled":
+        logger.warning("production_authentication_disabled")
 
     # Setup Rate Limiting State & Handlers
     app.state.limiter = limiter
@@ -94,17 +102,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Mount API Routers
     app.include_router(health_router)
-    app.include_router(desk_router)
-    app.include_router(query_router)
-    app.include_router(documents_router)
-    app.include_router(inbox_router)
-    app.include_router(triage_rules_router)
-    app.include_router(negotiations_router)
-    app.include_router(intelligence_router)
-    app.include_router(graph_router)
-    app.include_router(workspaces_router)
-    app.include_router(analytics_router)
-    app.include_router(compare_router)
+    protected_dependencies = [Depends(get_current_principal)]
+    for protected_router in (
+        auth_router,
+        desk_router,
+        query_router,
+        documents_router,
+        inbox_router,
+        triage_rules_router,
+        negotiations_router,
+        intelligence_router,
+        graph_router,
+        workspaces_router,
+        analytics_router,
+        compare_router,
+    ):
+        app.include_router(protected_router, dependencies=protected_dependencies)
     app.include_router(ws_router)
 
     # Static UI Files Mounting

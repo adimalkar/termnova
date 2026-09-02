@@ -150,13 +150,89 @@ class Settings(BaseSettings):
     )
 
     # ── Security & Rate Limiting (v2) ──
+    AUTH_MODE: Literal["disabled", "api_key", "oidc"] = Field(
+        default="disabled",
+        description="Request authentication mode; disabled is intended for local development only",
+    )
     REQUIRE_AUTH: bool = Field(
         default=False,
-        description="Require X-API-Key header authentication for API routes",
+        description="Deprecated compatibility flag; enables api_key mode when AUTH_MODE is disabled",
     )
-    API_KEY: str = Field(
-        default="termnova-secret-key-prod",
-        description="Master API key for authenticated operations",
+    API_KEY: str | None = Field(
+        default=None,
+        description="Interim service API key; prefer OIDC for interactive production access",
+    )
+    API_KEY_SUBJECT: str = Field(
+        default="termnova-service-account",
+        description="Stable subject represented by the interim service API key",
+    )
+    API_KEY_DISPLAY_NAME: str = Field(
+        default="Termnova Service Account",
+        description="Display name represented by the interim service API key",
+    )
+    API_KEY_ORGANIZATION_ID: str = Field(
+        default="local",
+        description="Organization represented by the interim service API key",
+    )
+    API_KEY_ROLES: str = Field(
+        default="service",
+        description="Comma-separated roles represented by the interim service API key",
+    )
+    OIDC_ISSUER: str | None = Field(
+        default=None,
+        description="Exact OpenID Connect issuer expected in bearer tokens",
+    )
+    OIDC_AUDIENCE: str | None = Field(
+        default=None,
+        description="Audience required in OpenID Connect bearer tokens",
+    )
+    OIDC_JWKS_URL: str | None = Field(
+        default=None,
+        description="Optional explicit JWKS URL; otherwise discovered from the issuer",
+    )
+    OIDC_ALLOWED_ALGORITHMS: str = Field(
+        default="RS256",
+        description="Comma-separated asymmetric JWT signing algorithms",
+    )
+    OIDC_ORGANIZATION_CLAIM: str = Field(
+        default="org_id",
+        description="JWT claim containing the external organization identifier",
+    )
+    OIDC_ROLES_CLAIM: str = Field(
+        default="roles",
+        description="JWT claim containing organization roles",
+    )
+    OIDC_NAME_CLAIM: str = Field(
+        default="name",
+        description="JWT claim containing the actor display name",
+    )
+    OIDC_EMAIL_CLAIM: str = Field(
+        default="email",
+        description="JWT claim containing the actor email address",
+    )
+    OIDC_JWKS_CACHE_TTL_SECONDS: int = Field(
+        default=300,
+        ge=30,
+        le=86400,
+        description="OIDC discovery and signing-key cache lifetime",
+    )
+    OIDC_JWKS_MIN_REFRESH_INTERVAL_SECONDS: int = Field(
+        default=10,
+        ge=1,
+        le=300,
+        description="Minimum interval between forced JWKS refreshes for unknown key IDs",
+    )
+    OIDC_HTTP_TIMEOUT_SECONDS: float = Field(
+        default=5.0,
+        gt=0,
+        le=30,
+        description="Timeout for OIDC discovery and JWKS requests",
+    )
+    OIDC_CLOCK_SKEW_SECONDS: int = Field(
+        default=30,
+        ge=0,
+        le=300,
+        description="Allowed JWT clock skew for time-based claim validation",
     )
     RATE_LIMIT_DEFAULT: str = Field(
         default="60/minute",
@@ -221,6 +297,13 @@ class Settings(BaseSettings):
         path = Path(self.UPLOAD_DIR)
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    @property
+    def effective_auth_mode(self) -> Literal["disabled", "api_key", "oidc"]:
+        """Resolve the explicit auth mode while honoring the legacy REQUIRE_AUTH flag."""
+        if self.AUTH_MODE == "disabled" and self.REQUIRE_AUTH:
+            return "api_key"
+        return self.AUTH_MODE
 
 
 @lru_cache(maxsize=1)

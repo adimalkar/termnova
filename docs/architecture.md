@@ -7,7 +7,7 @@
 
 ## 1. System Overview
 
-**Termnova** is a contract-focused Retrieval-Augmented Generation (RAG) platform designed to parse, index, search, and analyze agreements. It is a beta system: generated answers and extracted facts require review against the linked source text, and enterprise identity and tenant-isolation controls remain roadmap work.
+**Termnova** is a contract-focused Retrieval-Augmented Generation (RAG) platform designed to parse, index, search, and analyze agreements. It is a beta system: generated answers and extracted facts require review against the linked source text. A provider-neutral OIDC/JWKS request-principal boundary is available but must be configured; membership-backed authorization and database tenant isolation remain roadmap work.
 
 Traditional naive single-pass RAG pipelines frequently suffer from:
 1. **Low Keyword Recall:** Dense embedding search misses exact clause numbers (`ARTICLE 6.1`), currency thresholds (`$2,500,000`), and specific identifiers.

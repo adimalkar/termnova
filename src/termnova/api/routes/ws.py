@@ -6,10 +6,14 @@ import uuid
 import structlog
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from termnova.api.dependencies import get_settings
 from termnova.api.ws_manager import ws_manager
 from termnova.db.connection import AsyncSessionFactory, _create_async_engine
 from termnova.rag.engine import RAGEngine
+from termnova.security.auth import (
+    AuthenticationFailedError,
+    IdentityProviderUnavailableError,
+    authenticate_websocket,
+)
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["WebSocket"])
@@ -18,6 +22,17 @@ router = APIRouter(tags=["WebSocket"])
 @router.websocket("/ws/query")
 async def websocket_query_endpoint(websocket: WebSocket):
     """Bidirectional streaming Q&A endpoint."""
+    settings = websocket.app.state.settings
+    try:
+        principal = await authenticate_websocket(websocket, settings)
+    except AuthenticationFailedError:
+        await websocket.close(code=4401, reason="Authentication required")
+        return
+    except IdentityProviderUnavailableError:
+        await websocket.close(code=1013, reason="Identity provider unavailable")
+        return
+
+    websocket.state.principal = principal
     client_id = f"client_{uuid.uuid4().hex[:8]}"
     await ws_manager.connect(websocket, client_id)
 
@@ -46,7 +61,7 @@ async def websocket_query_endpoint(websocket: WebSocket):
                 continue
 
             async with session_factory() as session:
-                rag_engine = RAGEngine(session, settings=get_settings())
+                rag_engine = RAGEngine(session, settings=settings)
 
                 try:
                     async for event_line in rag_engine.query_stream(
@@ -71,6 +86,17 @@ async def websocket_query_endpoint(websocket: WebSocket):
 @router.websocket("/ws/notifications")
 async def websocket_notifications_endpoint(websocket: WebSocket):
     """Push notifications and collaborative workspace channel."""
+    settings = websocket.app.state.settings
+    try:
+        principal = await authenticate_websocket(websocket, settings)
+    except AuthenticationFailedError:
+        await websocket.close(code=4401, reason="Authentication required")
+        return
+    except IdentityProviderUnavailableError:
+        await websocket.close(code=1013, reason="Identity provider unavailable")
+        return
+
+    websocket.state.principal = principal
     client_id = f"notif_{uuid.uuid4().hex[:8]}"
     await ws_manager.connect(websocket, client_id)
 
@@ -113,7 +139,11 @@ async def websocket_notifications_endpoint(websocket: WebSocket):
 
                 elif action == "typing":
                     ws_id = msg.get("workspace_id")
-                    user_name = msg.get("user_name", "Team Member")
+                    user_name = (
+                        principal.display_name
+                        if principal.is_authenticated
+                        else msg.get("user_name", principal.display_name)
+                    )
                     if ws_id:
                         await ws_manager.broadcast_to_channel(
                             str(ws_id),

@@ -1,34 +1,29 @@
-"""Named-actor identity for collaborative writes.
+"""Compatibility helpers for actor display names on collaborative writes."""
 
-The demo desk is a shared book (REQUIRE_AUTH defaults off). What *does* need a
-name is anything a person authors: rooms, messages, assignments. This header is
-that name — not a tenant, not a substitute for API-key auth.
-"""
+from fastapi import Depends
 
-import re
+from termnova.security.auth import RequestPrincipal, get_current_principal
 
-from fastapi import Header
-
-_DEFAULT_ACTOR = "Counsel"
 _MAX_LEN = 100
-_SAFE_NAME = re.compile(r"[^\w\s.&'()/-]+", re.UNICODE)
 
 
 def get_desk_actor(
-    x_termnova_actor: str | None = Header(default=None, alias="X-Termnova-Actor"),
+    principal: RequestPrincipal = Depends(get_current_principal),
 ) -> str:
-    """Return a sanitized display name from X-Termnova-Actor, else Counsel."""
-    raw = (x_termnova_actor or "").strip()
-    if not raw:
-        return _DEFAULT_ACTOR
-    cleaned = _SAFE_NAME.sub("", raw)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()[:_MAX_LEN]
-    return cleaned or _DEFAULT_ACTOR
+    """Return the display name established by the request principal."""
+    return principal.display_name
 
 
-def resolve_actor_name(payload_name: str | None, actor: str) -> str:
-    """Prefer an explicit payload name; otherwise stamp the request actor."""
+def resolve_actor_name(payload_name: str | None, actor: RequestPrincipal | str) -> str:
+    """Ignore client-supplied names for authenticated principals; retain local demo aliases."""
+    if isinstance(actor, RequestPrincipal):
+        if actor.is_authenticated:
+            return actor.display_name
+        fallback = actor.display_name
+    else:
+        fallback = actor
+
     name = (payload_name or "").strip()
     if not name or name == "Team Member":
-        return actor
+        return fallback
     return name[:_MAX_LEN]
