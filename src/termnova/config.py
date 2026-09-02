@@ -42,6 +42,9 @@ class Settings(BaseSettings):
         default="v2",
         description="Bump to invalidate all query response cache entries",
     )
+    MAX_BULK_FILES: int = Field(default=250, ge=1, le=5000)
+    MAX_BULK_UNCOMPRESSED_MB: int = Field(default=500, ge=1, le=10000)
+    MAX_ZIP_COMPRESSION_RATIO: float = Field(default=100.0, ge=1.0, le=1000.0)
 
     # ── LLM Provider & Routing ──
     LLM_PROVIDER: Literal["opencode", "openai", "openrouter", "bedrock", "ollama", "mock"] = Field(
