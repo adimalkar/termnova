@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
@@ -15,6 +16,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -450,6 +452,95 @@ class VersionClauseChange(TenantOwned, Base):
     similarity: Mapped[float | None] = mapped_column(Float, nullable=True)
     materiality: Mapped[str] = mapped_column(String(20), nullable=False, default="low")
     review_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ContractFact(TenantOwned, Base):
+    """Typed contract fact whose value is inseparable from immutable source evidence."""
+
+    __tablename__ = "contract_facts"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_version_id", "fact_fingerprint", name="uq_version_fact_fingerprint"
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    logical_document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("logical_documents.id", ondelete="CASCADE"), nullable=False
+    )
+    document_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_versions.id", ondelete="CASCADE"), nullable=False
+    )
+    clause_occurrence_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clause_occurrences.id", ondelete="RESTRICT"), nullable=False
+    )
+    processing_snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("processing_snapshots.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    fact_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    display_value: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_value: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    actor: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    beneficiary: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    action: Mapped[str | None] = mapped_column(Text, nullable=True)
+    due_rule: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    monetary_value: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    risk_level: Mapped[str] = mapped_column(String(20), nullable=False, default="medium")
+    extraction_method: Mapped[str] = mapped_column(String(80), nullable=False)
+    fact_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    verification_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class FactReviewDecision(TenantOwned, Base):
+    """Append-only reviewer decision for a structured contract fact."""
+
+    __tablename__ = "fact_review_decisions"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    fact_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("contract_facts.id", ondelete="CASCADE"), nullable=False
+    )
+    decision: Mapped[str] = mapped_column(String(20), nullable=False)
+    reviewer_subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    expected_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    prior_value: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    decided_value: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class FactEvaluationExample(TenantOwned, Base):
+    """Organization-scoped labeled example derived from an explicit reviewer decision."""
+
+    __tablename__ = "fact_evaluation_examples"
+    __table_args__ = (UniqueConstraint("decision_id", name="uq_fact_evaluation_decision"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    decision_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("fact_review_decisions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    fact_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    clause_occurrence_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clause_occurrences.id", ondelete="RESTRICT"), nullable=False
+    )
+    labeled_value: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    label: Mapped[str] = mapped_column(String(20), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

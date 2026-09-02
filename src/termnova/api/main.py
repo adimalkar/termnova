@@ -31,6 +31,7 @@ from termnova.api.routes import (
     organizations_router,
     query_router,
     triage_rules_router,
+    verification_router,
     workspaces_router,
 )
 from termnova.api.routes.compare import router as compare_router
@@ -133,6 +134,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         (enterprise_identity_router, "tenant:admin"),
         (inbox_router, "document:read"),
         (triage_rules_router, "document:write"),
+        (verification_router, "document:read"),
         (negotiations_router, "document:write"),
         (intelligence_router, "document:read"),
         (lifecycle_router, "document:read"),
