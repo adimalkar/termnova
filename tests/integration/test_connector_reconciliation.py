@@ -74,6 +74,24 @@ async def test_reconcile_detects_revisions_moves_missing_items_and_acl_loss(test
     assert msa.name == "Executed Vendor MSA.docx"
     assert msa.source_revision == "2"
 
+    retry = await service.reconcile(
+        connection.id,
+        [
+            SourceItemSnapshot(
+                external_item_id="drive-file-1",
+                name="Executed Vendor MSA.docx",
+                source_revision="2",
+                container_path="/Procurement/Vendor A",
+                permissions_hash="a" * 64,
+            )
+        ],
+        next_cursor="cursor-2b",
+        full_snapshot=False,
+        actor_subject="connector-worker",
+    )
+    assert retry.counts == {"retry_fetch": 1}
+    assert retry.actions[0].requires_fetch is True
+
     final = await service.reconcile(
         connection.id,
         [
@@ -101,5 +119,5 @@ async def test_reconcile_detects_revisions_moves_missing_items_and_acl_loss(test
         .scalars()
         .all()
     )
-    assert [run.status for run in runs] == ["completed", "completed", "completed"]
-    assert runs[-1].cursor_before == "cursor-2"
+    assert [run.status for run in runs] == ["completed"] * 4
+    assert runs[-1].cursor_before == "cursor-2b"

@@ -129,6 +129,7 @@ class ConnectorSyncService:
                 (snapshot.source_revision and snapshot.source_revision != item.source_revision)
                 or (snapshot.content_hash and snapshot.content_hash != item.content_hash)
             )
+            pending_fetch = item.status in {"discovered", "content_changed", "restored", "failed"}
             moved = snapshot.name != item.name or snapshot.container_path != item.container_path
             permissions_changed = snapshot.permissions_hash != item.permissions_hash
             restored = item.status in {"access_revoked", "missing"} and snapshot.accessible
@@ -140,6 +141,8 @@ class ConnectorSyncService:
                         logical.status = "source_access_revoked"
             elif content_changed or restored:
                 action, requires_fetch = "content_changed" if content_changed else "restored", True
+            elif pending_fetch:
+                action, requires_fetch = "retry_fetch", True
             elif moved:
                 action, requires_fetch = "moved_or_renamed", False
             elif permissions_changed:
