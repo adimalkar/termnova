@@ -85,6 +85,7 @@ async def test_real_contract_query_rag_flow(api_client: AsyncClient, test_sessio
         embedding=emb2,
     )
     test_session.add_all([c1, c2])
+    await test_session.flush()
     from termnova.rag.engine import RAGEngine
 
     rag_engine = RAGEngine(test_session, embedder, get_settings())
