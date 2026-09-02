@@ -150,6 +150,22 @@ class TaskStatusResponse(BaseModel):
     error: str | None = None
 
 
+class BulkUploadItemResponse(BaseModel):
+    filename: str
+    status: str
+    document_id: uuid.UUID | None = None
+    logical_document_id: uuid.UUID | None = None
+    document_version_id: uuid.UUID | None = None
+    task_id: str | None = None
+    detail: str | None = None
+
+
+class BulkUploadResponse(BaseModel):
+    accepted: int
+    rejected: int
+    items: list[BulkUploadItemResponse] = Field(default_factory=list)
+
+
 # ── Contract Comparison Schemas (v2) ──
 class CompareRequest(BaseModel):
     """Payload to compare two indexed contracts."""
