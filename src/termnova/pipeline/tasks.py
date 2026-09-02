@@ -8,6 +8,7 @@ import structlog
 
 from termnova.config import get_settings
 from termnova.db.connection import create_async_engine
+from termnova.facts import ContractFactExtractor
 from termnova.lifecycle import VersionLifecycleService
 from termnova.operations.jobs import mark_job_completed, mark_job_failed, mark_job_started
 from termnova.pipeline.celery_app import celery_app
@@ -59,6 +60,13 @@ def ingest_document_task(
                 logger.info("Celery worker starting document ingestion", key=storage_key)
                 doc = await pipeline.ingest_file(file_path, document_id=document_id)
                 version_analysis = await lifecycle.analyze_and_promote(document_id)
+                facts = (
+                    await ContractFactExtractor(session).extract_version(
+                        version_analysis.version_id
+                    )
+                    if version_analysis is not None
+                    else []
+                )
                 await mark_job_completed(session, job_id)
                 await session.commit()
                 try:
@@ -80,6 +88,7 @@ def ingest_document_task(
                     result["change_classification"] = version_analysis.classification
                     result["changed_clauses"] = version_analysis.changed_clauses
                     result["requires_review"] = version_analysis.requires_review
+                    result["extracted_fact_count"] = len(facts)
                 return result
             except Exception as exc:
                 await session.rollback()
