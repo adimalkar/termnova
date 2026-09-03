@@ -11,21 +11,46 @@ from termnova.api.ws_manager import ws_manager
 from termnova.db.connection import AsyncSessionFactory, _create_async_engine
 from termnova.rag.engine import RAGEngine
 from termnova.rag.guardrails import GuardrailChecker, GuardrailViolationError
-from termnova.security.auth import authenticate_api_key
+from termnova.security.auth import (
+    BROWSER_SESSION_COOKIE,
+    authenticate_request,
+    is_same_origin,
+)
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["WebSocket"])
 
 
+async def _authenticate_websocket(websocket: WebSocket) -> bool:
+    """Authenticate API clients by header and browsers by signed same-origin cookie."""
+    settings = getattr(websocket.app.state, "settings", get_settings())
+    try:
+        identity = authenticate_request(
+            websocket.headers.get("x-api-key"),
+            websocket.cookies.get(BROWSER_SESSION_COOKIE),
+            settings,
+        )
+    except HTTPException:
+        await websocket.close(code=4401, reason="Authentication required")
+        return False
+
+    production = settings.APP_ENV.strip().casefold() == "production"
+    if identity == "browser-session-authenticated" and not is_same_origin(
+        websocket.headers.get("origin"),
+        websocket.headers.get("host"),
+        production=production,
+    ):
+        await websocket.close(code=4403, reason="Same-origin request required")
+        return False
+    return True
+
+
 @router.websocket("/ws/query")
 async def websocket_query_endpoint(websocket: WebSocket):
     """Bidirectional streaming Q&A endpoint."""
-    settings = getattr(websocket.app.state, "settings", get_settings())
-    try:
-        authenticate_api_key(websocket.headers.get("x-api-key"), settings)
-    except HTTPException:
-        await websocket.close(code=4401, reason="Authentication required")
+    if not await _authenticate_websocket(websocket):
         return
+    settings = getattr(websocket.app.state, "settings", get_settings())
 
     client_id = f"client_{uuid.uuid4().hex[:8]}"
     await ws_manager.connect(websocket, client_id)
@@ -88,6 +113,9 @@ async def websocket_query_endpoint(websocket: WebSocket):
 @router.websocket("/ws/notifications")
 async def websocket_notifications_endpoint(websocket: WebSocket):
     """Push notifications and collaborative workspace channel."""
+    if not await _authenticate_websocket(websocket):
+        return
+
     client_id = f"notif_{uuid.uuid4().hex[:8]}"
     await ws_manager.connect(websocket, client_id)
 

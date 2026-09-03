@@ -17,6 +17,8 @@ services:
         value: "true"
       - key: API_KEY
         sync: false
+      - key: BROWSER_SESSION_TTL_SECONDS
+        value: "28800"
       - key: EXPOSE_METRICS
         value: "false"
       - key: CORS_ORIGINS

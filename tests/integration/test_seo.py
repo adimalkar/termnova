@@ -66,6 +66,9 @@ async def test_html_seo_metadata(api_client: AsyncClient):
     assert '"@type": "FAQPage"' in html
     assert 'id="mobile-header"' in html
     assert 'id="btn-mobile-menu"' in html
+    assert 'id="auth-session-form"' in html
+    assert 'id="auth-access-key"' in html
+    assert 'id="btn-lock-desk"' in html
 
 
 @pytest.mark.integration

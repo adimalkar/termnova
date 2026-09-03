@@ -155,6 +155,12 @@ class Settings(BaseSettings):
         default=None,
         description="High-entropy API key for protected inference operations",
     )
+    BROWSER_SESSION_TTL_SECONDS: int = Field(
+        default=28800,
+        ge=300,
+        le=86400,
+        description="Lifetime of the signed browser session cookie",
+    )
     RATE_LIMIT_DEFAULT: str = Field(
         default="60/minute",
         description="Default endpoint rate limit",

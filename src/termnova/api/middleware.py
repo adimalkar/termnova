@@ -10,7 +10,11 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from termnova.config import Settings
-from termnova.security.auth import authenticate_api_key
+from termnova.security.auth import (
+    BROWSER_SESSION_COOKIE,
+    authenticate_request,
+    is_same_origin,
+)
 
 logger = structlog.get_logger("api.access")
 
@@ -38,7 +42,7 @@ class RequestCorrelationMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith("/api/v1/"):
             response.headers["Cache-Control"] = "no-store"
             response.headers["Pragma"] = "no-cache"
-            response.headers["Vary"] = "X-API-Key"
+            response.headers["Vary"] = "X-API-Key, Cookie"
         if self.production:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
@@ -62,17 +66,37 @@ class APIAuthenticationMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, settings: Settings):
         super().__init__(app)
         self.settings = settings
+        self.production = settings.APP_ENV.strip().casefold() == "production"
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        if request.url.path.startswith("/api/v1/"):
+        login_request = request.url.path == "/api/v1/auth/session" and request.method == "POST"
+        if request.url.path.startswith("/api/v1/") and not login_request:
             try:
-                authenticate_api_key(request.headers.get("x-api-key"), self.settings)
+                identity = authenticate_request(
+                    request.headers.get("x-api-key"),
+                    request.cookies.get(BROWSER_SESSION_COOKIE),
+                    self.settings,
+                )
             except HTTPException as exc:
                 return JSONResponse(
                     status_code=exc.status_code,
                     content={"detail": exc.detail},
                     headers=exc.headers,
                 )
+            if (
+                identity == "browser-session-authenticated"
+                and request.method not in {"GET", "HEAD", "OPTIONS"}
+                and not is_same_origin(
+                    request.headers.get("origin"),
+                    request.headers.get("host"),
+                    production=self.production,
+                )
+            ):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Same-origin request required."},
+                )
+            request.state.auth_identity = identity
         return await call_next(request)
 
 

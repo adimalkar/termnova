@@ -1471,6 +1471,115 @@ body {
   opacity: 0.4;
 }
 
+/* ──── Protected browser session ──── */
+.auth-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 24, 21, 0.96);
+  backdrop-filter: blur(12px);
+}
+
+.auth-card {
+  width: min(100%, 430px);
+  padding: 34px;
+  background: #f5f1e7;
+  color: #17231f;
+  border: 1px solid rgba(23, 35, 31, 0.2);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+}
+
+.auth-mark {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 24px;
+  background: #17231f;
+  color: #f2c319;
+  font: 700 18px/1 var(--font-mono);
+}
+
+.auth-kicker,
+.auth-field span {
+  color: #58635f;
+  font: 600 0.68rem/1.2 var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.auth-card h1 {
+  margin: 8px 0 10px;
+  color: #17231f;
+  font: 600 2rem/1.05 var(--font-display);
+}
+
+.auth-copy,
+.auth-note {
+  color: #58635f;
+  line-height: 1.55;
+}
+
+.auth-field {
+  display: grid;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.auth-field input {
+  width: 100%;
+  padding: 12px 13px;
+  color: #17231f;
+  background: #fffdf7;
+  border: 1px solid #aeb5b1;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+}
+
+.auth-field input:focus {
+  outline: 3px solid rgba(242, 195, 25, 0.35);
+  border-color: #8b7000;
+}
+
+.auth-error {
+  min-height: 20px;
+  margin: 9px 0 0;
+  color: #b42318;
+  font-size: 0.8rem;
+}
+
+.auth-submit {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.auth-note {
+  margin: 14px 0 0;
+  font-size: 0.72rem;
+}
+
+.desk-lock-button {
+  width: 100%;
+  margin: 8px 0;
+  padding: 7px 9px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-hairline);
+  cursor: pointer;
+  font: 500 0.68rem/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.desk-lock-button:hover {
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+
 /* ──── Legal Modals ──── */
 .modal-backdrop {
   position: fixed;
@@ -1929,4 +2038,3 @@ body {
     padding: 10px 14px;
   }
 }
-
