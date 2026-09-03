@@ -9,9 +9,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from termnova import __version__
-from termnova.api.dependencies import get_db_session, get_redis_client, get_settings
+from termnova.api.dependencies import get_db_session, get_redis_client
 from termnova.api.schemas import HealthResponse
-from termnova.config import Settings
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["System"])
@@ -21,7 +20,6 @@ router = APIRouter(tags=["System"])
 async def health_check(
     session: AsyncSession = Depends(get_db_session),
     redis_client=Depends(get_redis_client),
-    settings: Settings = Depends(get_settings),
 ) -> HealthResponse:
     """Verify application readiness, database connectivity, and cache status."""
     db_status = "healthy"
@@ -48,7 +46,5 @@ async def health_check(
         commit_sha=os.getenv("RENDER_GIT_COMMIT"),
         database=db_status,
         redis=redis_status,
-        llm_provider=settings.LLM_PROVIDER,
-        embedding_model=settings.EMBEDDING_MODEL,
         timestamp=datetime.now(UTC),
     )

@@ -19,6 +19,8 @@ async def test_health_check_endpoint(api_client: AsyncClient, monkeypatch):
     assert data["commit_sha"] == "a" * 40
     assert "database" in data
     assert "redis" in data
+    assert "llm_provider" not in data
+    assert "embedding_model" not in data
 
 
 @pytest.mark.e2e
@@ -83,6 +85,7 @@ Liability is capped at $5,000,000.
     assert query_data["answer"] != ""
     assert query_data["confidence_score"] >= 0.0
     assert len(query_data["citations"]) > 0
+    assert "model_used" not in query_data
 
     # 4. Fetch past query details
     detail_resp = await api_client.get(f"/api/v1/query/{query_id}")

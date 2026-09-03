@@ -54,6 +54,7 @@ class RAGEngine:
         document_ids: list[uuid.UUID] | None = None,
     ) -> QueryResult:
         """Execute complete RAG pipeline synchronously (with optional agentic routing)."""
+        self.guardrails.validate_input(query_text)
         if self.settings.USE_AGENTIC_RAG:
             return await self.query_agentic(
                 query_text,
@@ -63,7 +64,11 @@ class RAGEngine:
             )
 
         start_time = time.time()
-        logger.info("Executing RAG query", query=query_text, conversation_id=str(conversation_id))
+        logger.info(
+            "Executing RAG query",
+            query_length=len(query_text),
+            conversation_id=str(conversation_id),
+        )
 
         # 0. Conversation Context & Query Rewriting
         conv_id = await self.conversation_memory.get_or_create_conversation(conversation_id)
@@ -78,7 +83,7 @@ class RAGEngine:
 
         # Handle zero retrieval case
         if not retrieved:
-            logger.info("No candidates retrieved for query", query=query_text)
+            logger.info("No candidates retrieved for query", query_length=len(query_text))
             latency_ms = int((time.time() - start_time) * 1000)
             no_info_ans = (
                 "Based on the uploaded contracts in your knowledge base, there is no "
@@ -133,7 +138,7 @@ class RAGEngine:
                 "document_filename": c.document_filename,
                 "page_number": c.page_number,
                 "section_header": c.section_header,
-                "excerpt": c.excerpt,
+                "excerpt": self.guardrails.sanitize_public_text(c.excerpt)[0],
             }
             for c in gen_answer.citations
         ]
@@ -204,6 +209,7 @@ class RAGEngine:
         document_ids: list[uuid.UUID] | None = None,
     ) -> QueryResult:
         """Execute stateful LangGraph agentic reasoning workflow."""
+        self.guardrails.validate_input(query_text)
         from termnova.agents.graph import build_rag_graph
 
         start_time = time.time()
@@ -312,7 +318,8 @@ class RAGEngine:
         top_k: int | None = None,
         document_ids: list[uuid.UUID] | None = None,
     ) -> AsyncGenerator[str, None]:
-        """Execute RAG pipeline with Server-Sent Events (SSE) streaming."""
+        """Execute buffered SSE generation so no unchecked token reaches a client."""
+        self.guardrails.validate_input(query_text)
         start_time = time.time()
         conv_id = await self.conversation_memory.get_or_create_conversation(conversation_id)
         history = await self.conversation_memory.get_history(conv_id)
@@ -332,11 +339,11 @@ class RAGEngine:
 
         graded_chunks = await self.grader.grade_chunks(active_query, retrieved)
 
-        # Stream generated tokens
+        # Buffer the complete draft. Token-by-token forwarding would expose
+        # secrets or injected system text before post-generation checks run.
         full_generated_text = ""
         async for token in self.generator.generate_stream(active_query, graded_chunks):
             full_generated_text += token
-            yield f"data: {json.dumps({'event': 'chunk', 'data': token})}\n\n"
 
         # Post-generation guardrails and citation extraction
         citations = self.generator._extract_citations(full_generated_text, graded_chunks)
@@ -349,6 +356,10 @@ class RAGEngine:
         )
         guard_result = await self.guardrails.check(gen_obj, graded_chunks)
         latency_ms = int((time.time() - start_time) * 1000)
+
+        for offset in range(0, len(guard_result.redacted_answer), 512):
+            safe_chunk = guard_result.redacted_answer[offset : offset + 512]
+            yield f"data: {json.dumps({'event': 'chunk', 'data': safe_chunk})}\n\n"
 
         # Yield citations event
         citations_payload = [

@@ -4,7 +4,7 @@ import json
 import uuid
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sse_starlette.sse import EventSourceResponse
 
 from termnova.api.dependencies import (
@@ -23,19 +23,26 @@ from termnova.api.schemas import (
 from termnova.config import Settings
 from termnova.db.repository import ContractRepository
 from termnova.rag.engine import RAGEngine
+from termnova.rag.guardrails import GuardrailChecker
+from termnova.security.rate_limiter import limiter
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/query", tags=["Query & RAG Analysis"])
 
 
 @router.post("", response_model=QueryResponse)
+@limiter.limit(lambda: get_settings().RATE_LIMIT_QUERY)
 async def ask_question(
+    request: Request,
     payload: QueryRequest,
     rag_engine: RAGEngine = Depends(get_rag_engine),
     redis_client=Depends(get_redis_client),
     settings: Settings = Depends(get_settings),
 ):
     """Ask a question against all ingested contract documents."""
+    # Validate before constructing an SSE response; exceptions raised later by
+    # a streaming generator cannot be converted into a safe HTTP rejection.
+    rag_engine.guardrails.validate_input(payload.query)
     if payload.stream:
         # Return Server-Sent Events stream
         return EventSourceResponse(
@@ -55,7 +62,7 @@ async def ask_question(
         try:
             cached = await redis_client.get(cache_key)
             if cached:
-                logger.info("Serving query from Redis cache", query=payload.query)
+                logger.info("Serving query from Redis cache", query_length=len(payload.query))
                 return QueryResponse(**json.loads(cached))
         except Exception as e:
             logger.warning("Cache lookup failed", error=str(e))
@@ -75,7 +82,7 @@ async def ask_question(
             document_filename=c.document_filename,
             page_number=c.page_number,
             section_header=c.section_header,
-            excerpt=c.excerpt,
+            excerpt=rag_engine.guardrails.sanitize_public_text(c.excerpt)[0],
         )
         for c in result.citations
     ]
@@ -100,7 +107,6 @@ async def ask_question(
         pii_redacted=result.pii_redacted,
         retrieval_count=result.retrieval_count,
         latency_ms=result.latency_ms,
-        model_used=result.model_used,
     )
 
     # Cache response in Redis
@@ -121,6 +127,7 @@ async def ask_question(
 async def get_query_detail(
     query_id: uuid.UUID,
     repo: ContractRepository = Depends(get_repository),
+    settings: Settings = Depends(get_settings),
 ) -> QueryResponse:
     """Retrieve details and audit information for a past query."""
     log = await repo.get_query_log(query_id)
@@ -130,6 +137,7 @@ async def get_query_detail(
             detail=f"Query log with ID {query_id} not found.",
         )
 
+    guardrails = GuardrailChecker(settings)
     citations_list = [
         CitationResponse(
             source_number=c.get("source_number", idx + 1),
@@ -137,7 +145,7 @@ async def get_query_detail(
             document_filename=c.get("document_filename", "Document"),
             page_number=c.get("page_number"),
             section_header=c.get("section_header"),
-            excerpt=c.get("excerpt", ""),
+            excerpt=guardrails.sanitize_public_text(c.get("excerpt", ""))[0],
         )
         for idx, c in enumerate(log.citations or [])
     ]
@@ -162,7 +170,6 @@ async def get_query_detail(
         pii_redacted=log.pii_redacted,
         retrieval_count=len(log.retrieved_chunk_ids or []),
         latency_ms=log.latency_ms or 0,
-        model_used=log.llm_model or "default",
     )
 
 

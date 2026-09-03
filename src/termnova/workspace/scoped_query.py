@@ -48,6 +48,8 @@ class ScopedRAGExecutor:
 
         Returns (human_message, ai_response_message).
         """
+        self.guardrails.validate_input(query)
+
         # 1. Parse document scope UUIDs
         doc_uuids: list[uuid.UUID] = []
         for d in workspace.document_scope or []:
@@ -103,7 +105,7 @@ class ScopedRAGExecutor:
                 "document_name": c.document_filename,
                 "page_number": c.page_number,
                 "section_header": c.section_header,
-                "snippet": c.excerpt,
+                "snippet": self.guardrails.sanitize_public_text(c.excerpt)[0],
             }
             for c in generated.citations
         ]
@@ -137,7 +139,7 @@ class ScopedRAGExecutor:
         logger.info(
             "Executed workspace scoped RAG query",
             workspace_id=str(workspace.id),
-            query=query,
+            query_length=len(query),
             user=user_name,
             citation_count=len(citations_data),
         )

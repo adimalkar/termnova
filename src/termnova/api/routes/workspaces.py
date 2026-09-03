@@ -4,7 +4,7 @@ import uuid
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from termnova.api.dependencies import get_db, get_settings
@@ -12,6 +12,7 @@ from termnova.api.identity import get_desk_actor, resolve_actor_name
 from termnova.api.ws_manager import ws_manager
 from termnova.config import Settings
 from termnova.db.models import Workspace
+from termnova.security.rate_limiter import limiter
 from termnova.workspace.schemas import (
     MessageCreateRequest,
     MessagePatchRequest,
@@ -385,7 +386,9 @@ async def get_pinned_findings(
 
 
 @router.post("/{workspace_id}/query", response_model=ScopedQueryResponse)
+@limiter.limit(lambda: get_settings().RATE_LIMIT_QUERY)
 async def execute_scoped_workspace_query(
+    request: Request,
     workspace_id: uuid.UUID,
     payload: ScopedQueryRequest,
     session: AsyncSession = Depends(get_db),

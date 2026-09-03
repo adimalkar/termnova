@@ -70,7 +70,6 @@ class QueryResponse(BaseModel):
     pii_redacted: bool = False
     retrieval_count: int = 0
     latency_ms: int
-    model_used: str
 
 
 class FeedbackRequest(BaseModel):
@@ -229,6 +228,4 @@ class HealthResponse(BaseModel):
     commit_sha: str | None = None
     database: str = "healthy"
     redis: str = "healthy"
-    llm_provider: str = "openai"
-    embedding_model: str | None = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))

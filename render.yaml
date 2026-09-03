@@ -12,6 +12,14 @@ services:
         value: production
       - key: LOG_LEVEL
         value: INFO
+      - key: REQUIRE_AUTH
+        value: "true"
+      - key: API_KEY
+        sync: false
+      - key: EXPOSE_METRICS
+        value: "false"
+      - key: CORS_ORIGINS
+        value: "[]"
       - key: LLM_PROVIDER
         value: openrouter
       - key: LLM_MODEL
