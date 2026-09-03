@@ -2,11 +2,11 @@
 
 import json
 import re
-from typing import Any
 
 import structlog
 
 from termnova.config import Settings
+from termnova.llm_client import acompletion_with_fallback, provider_available
 from termnova.triage.schemas import ClassificationResult
 
 logger = structlog.get_logger(__name__)
@@ -63,7 +63,9 @@ class ContractClassifier:
         risk_signals = self._extract_risk_signals_heuristic(document_text)
 
         # Generate summary bullets
-        has_credentials = bool(self.settings.OPENAI_API_KEY or self.settings.OPENROUTER_API_KEY)
+        has_credentials = provider_available(
+            self.settings.LLM_PROVIDER, self.settings
+        ) or provider_available(self.settings.LLM_FALLBACK_PROVIDER, self.settings)
         if self.settings.LLM_PROVIDER != "mock" and has_credentials:
             try:
                 llm_result = await self._classify_by_llm(
@@ -293,8 +295,6 @@ class ContractClassifier:
         self, text_snippet: str, filename: str, heuristic_type: str
     ) -> ClassificationResult:
         """Call litellm with structured prompt for detailed triage classification."""
-        import litellm
-
         prompt = f"""You are an expert legal AI reviewing incoming contracts for automated triage.
 Analyze the following document excerpt and return a JSON object with:
 - "contract_type": one of ["msa", "nda", "sow", "amendment", "lease", "employment", "vendor", "services", "license", "other"]
@@ -313,15 +313,11 @@ Document Excerpt:
 
 Respond ONLY with a valid JSON object matching this schema.
 """
-        model_name = self.settings.LLM_MODEL
-        kwargs: dict[str, Any] = {"temperature": 0.1, "max_tokens": 800}
-        if self.settings.OPENAI_API_KEY:
-            kwargs["api_key"] = self.settings.OPENAI_API_KEY
-
-        response = await litellm.acompletion(
-            model=model_name,
+        response = await acompletion_with_fallback(
             messages=[{"role": "user", "content": prompt}],
-            **kwargs,
+            settings=self.settings,
+            temperature=0.1,
+            max_tokens=800,
         )
         content = response.choices[0].message.content.strip()
         if content.startswith("```"):

@@ -1,11 +1,11 @@
 """Relevance grader evaluating retrieved context chunks against the user query."""
 
 import json
-from typing import Any
 
 import structlog
 
 from termnova.config import Settings, get_settings
+from termnova.llm_client import acompletion_with_fallback, provider_available
 from termnova.rag import GradedChunk, RetrievedChunk
 
 logger = structlog.get_logger(__name__)
@@ -64,50 +64,24 @@ class RelevanceGrader:
 
     async def grade_chunk(self, query: str, chunk: RetrievedChunk) -> GradedChunk:
         """Grade a single retrieved chunk."""
-        has_credentials = bool(
-            self.settings.OPENROUTER_API_KEY
-            or self.settings.OPENAI_API_KEY
-            or self.provider in ["bedrock", "ollama"]
-        )
-
-        if self.provider == "mock" or not has_credentials:
+        if self.provider == "mock" or (
+            not provider_available(self.provider, self.settings)
+            and not provider_available(self.settings.LLM_FALLBACK_PROVIDER, self.settings)
+        ):
             return self._heuristic_grade(query, chunk)
 
         try:
-            import litellm
-
             prompt = GRADER_PROMPT_TEMPLATE.format(
                 query=query,
                 content=chunk.content[:1500],
                 threshold=self.threshold,
             )
 
-            model_name = self.model
-            kwargs: dict[str, Any] = {"temperature": 0.0, "max_tokens": 150}
-
-            if self.provider == "openrouter" or self.settings.OPENROUTER_API_KEY:
-                if not model_name.startswith("openrouter/"):
-                    model_name = f"openrouter/{model_name}"
-                kwargs["api_key"] = self.settings.OPENROUTER_API_KEY or self.settings.OPENAI_API_KEY
-                kwargs["api_base"] = self.settings.OPENROUTER_BASE_URL
-            elif self.provider == "openai" and self.settings.OPENAI_API_KEY:
-                kwargs["api_key"] = self.settings.OPENAI_API_KEY
-            elif self.provider == "bedrock":
-                model_name = (
-                    f"bedrock/{self.model}" if not self.model.startswith("bedrock/") else self.model
-                )
-                if self.settings.AWS_REGION:
-                    kwargs["aws_region_name"] = self.settings.AWS_REGION
-            elif self.provider == "ollama":
-                model_name = (
-                    f"ollama/{self.model}" if not self.model.startswith("ollama/") else self.model
-                )
-                kwargs["api_base"] = self.settings.OLLAMA_BASE_URL
-
-            response = await litellm.acompletion(
-                model=model_name,
+            response = await acompletion_with_fallback(
                 messages=[{"role": "user", "content": prompt}],
-                **kwargs,
+                settings=self.settings,
+                temperature=0.0,
+                max_tokens=150,
             )
 
             text_resp = response.choices[0].message.content.strip()
@@ -144,6 +118,16 @@ class RelevanceGrader:
         """Grade all candidate chunks and return filtered relevant list."""
         if not chunks:
             return []
+
+        # Fast path: skip expensive per-chunk LLM calls when flag is off (default on Render)
+        if not self.settings.USE_LLM_GRADER:
+            heuristic_graded = [self._heuristic_grade(query, c) for c in chunks]
+            relevant = [g for g in heuristic_graded if g.is_relevant]
+            if not relevant and heuristic_graded:
+                top_g = max(heuristic_graded, key=lambda x: x.relevance_score)
+                top_g.is_relevant = True
+                relevant = [top_g]
+            return relevant
 
         graded_list: list[GradedChunk] = []
         for c in chunks:

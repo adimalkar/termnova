@@ -17,7 +17,9 @@ class EmbeddingService:
 
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
-        self.provider = self.settings.LLM_PROVIDER
+        self.provider = (
+            "mock" if self.settings.LLM_PROVIDER == "mock" else self.settings.EMBEDDING_PROVIDER
+        )
         self.model = self.settings.EMBEDDING_MODEL
         self.dimension = self.settings.EMBEDDING_DIMENSION
 
@@ -50,16 +52,38 @@ class EmbeddingService:
         retry=retry_if_exception_type(Exception),
         reraise=False,
     )
-    def _call_litellm_embedding(self, texts: list[str]) -> list[list[float]] | None:
-        """Execute litellm embedding request."""
-        import litellm
-
+    def _call_embedding_provider(self, texts: list[str]) -> list[list[float]] | None:
+        """Execute an embedding request against the explicitly selected provider."""
         model_name = self.model
-        kwargs: dict[str, Any] = {}
+        kwargs: dict[str, Any] = {
+            "timeout": self.settings.LLM_TIMEOUT_SECONDS,
+            "num_retries": self.settings.LLM_NUM_RETRIES,
+        }
 
         if self.provider == "openai":
             if self.settings.OPENAI_API_KEY:
                 kwargs["api_key"] = self.settings.OPENAI_API_KEY
+        elif self.provider == "openrouter":
+            import httpx
+
+            model_name = self.model.removeprefix("openrouter/")
+            response = httpx.post(
+                f"{self.settings.OPENROUTER_BASE_URL.rstrip('/')}/embeddings",
+                headers={"Authorization": f"Bearer {self.settings.OPENROUTER_API_KEY}"},
+                json={
+                    "model": model_name,
+                    "input": texts,
+                    "dimensions": self.dimension,
+                },
+                timeout=self.settings.LLM_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            embeddings = [
+                item["embedding"]
+                for item in sorted(payload["data"], key=lambda item: item.get("index", 0))
+            ]
+            return self._validate_dimensions(embeddings)
         elif self.provider == "bedrock":
             model_name = f"bedrock/{self.model}"
             if self.settings.AWS_REGION:
@@ -68,9 +92,32 @@ class EmbeddingService:
             model_name = f"ollama/{self.model}"
             kwargs["api_base"] = self.settings.OLLAMA_BASE_URL
 
+        import litellm
+
         response = litellm.embedding(model=model_name, input=texts, **kwargs)
         embeddings = [item["embedding"] for item in response.data]
+        return self._validate_dimensions(embeddings)
+
+    def _validate_dimensions(self, embeddings: list[list[float]]) -> list[list[float]]:
+        """Reject provider responses that cannot be stored in the configured vector column."""
+        invalid = [len(embedding) for embedding in embeddings if len(embedding) != self.dimension]
+        if invalid:
+            raise ValueError(
+                f"Embedding dimension mismatch: expected {self.dimension}, received {invalid[0]}"
+            )
         return embeddings
+
+    def _provider_is_available(self) -> bool:
+        """Return whether the selected embedding provider is configured for a request."""
+        return {
+            "openai": bool(self.settings.OPENAI_API_KEY),
+            "openrouter": bool(self.settings.OPENROUTER_API_KEY),
+            "bedrock": bool(
+                self.settings.AWS_ACCESS_KEY_ID and self.settings.AWS_SECRET_ACCESS_KEY
+            ),
+            "ollama": True,
+            "mock": False,
+        }.get(self.provider, False)
 
     def embed_texts(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
         """Embed a batch of text chunks with automated batching and resilient fallback."""
@@ -83,14 +130,13 @@ class EmbeddingService:
             batch = texts[i : i + batch_size]
             batch_embeddings: list[list[float]] | None = None
 
-            if self.provider != "mock" and (
-                self.settings.OPENAI_API_KEY or self.provider in ["bedrock", "ollama"]
-            ):
+            if self._provider_is_available():
                 try:
-                    batch_embeddings = self._call_litellm_embedding(batch)
+                    batch_embeddings = self._call_embedding_provider(batch)
                 except Exception as e:
                     logger.warning(
-                        "LiteLLM embedding call failed, falling back to deterministic", error=str(e)
+                        "Embedding provider call failed, falling back to deterministic",
+                        error=str(e),
                     )
                     batch_embeddings = None
 

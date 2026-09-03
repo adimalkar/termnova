@@ -3,7 +3,6 @@
 import json
 import re
 import uuid
-from typing import Any
 
 import structlog
 from sqlalchemy import select
@@ -12,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from termnova.config import Settings, get_settings
 from termnova.db.models import DocumentEntity, EntityNode
 from termnova.graph.schemas import ExtractedEntities, ExtractedParty, ExtractedRelationship
+from termnova.llm_client import acompletion_with_fallback, provider_available
 
 logger = structlog.get_logger(__name__)
 
@@ -179,48 +179,26 @@ class EntityExtractor:
         """Extract structured entities using LLM with heuristic fallback."""
         # Use first ~4000 chars (preamble, definitions, and beginning sections)
         sample_text = text[:4000]
-        has_credentials = bool(
-            self.settings.OPENROUTER_API_KEY
-            or self.settings.OPENAI_API_KEY
-            or self.provider in ["bedrock", "ollama"]
+        has_credentials = provider_available(self.provider, self.settings) or provider_available(
+            self.settings.LLM_FALLBACK_PROVIDER, self.settings
         )
 
         if self.provider == "mock" or not has_credentials or not sample_text.strip():
             return self._heuristic_extract(sample_text, filename)
 
         try:
-            import litellm
-
-            model_name = self.model
-            api_key = None
-            api_base = None
-
-            if self.provider == "openrouter":
-                if not model_name.startswith("openrouter/"):
-                    model_name = f"openrouter/{model_name}"
-                api_key = self.settings.OPENROUTER_API_KEY
-                api_base = self.settings.OPENROUTER_BASE_URL
-            elif self.provider == "openai":
-                api_key = self.settings.OPENAI_API_KEY
-
-            kwargs: dict[str, Any] = {
-                "model": model_name,
-                "messages": [
+            response = await acompletion_with_fallback(
+                messages=[
                     {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
                     {
                         "role": "user",
                         "content": f"Document Filename: {filename}\n\nContract Text:\n{sample_text}",
                     },
                 ],
-                "temperature": 0.0,
-                "max_tokens": 1000,
-            }
-            if api_key:
-                kwargs["api_key"] = api_key
-            if api_base:
-                kwargs["api_base"] = api_base
-
-            response = await litellm.acompletion(**kwargs)
+                settings=self.settings,
+                temperature=0.0,
+                max_tokens=1000,
+            )
             raw_content = response.choices[0].message.content or "{}"
 
             # Strip markdown json blocks if present
