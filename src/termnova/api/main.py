@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from termnova import __version__
 from termnova.api.middleware import setup_middleware
@@ -30,6 +31,7 @@ from termnova.api.routes.ws import router as ws_router
 from termnova.config import Settings, get_settings
 from termnova.db.connection import close_db, init_db
 from termnova.observability.tracing import setup_tracing
+from termnova.rag.guardrails import GuardrailViolationError
 from termnova.security.rate_limiter import custom_rate_limit_exceeded_handler, limiter
 
 logger = structlog.get_logger(__name__)
@@ -67,30 +69,34 @@ async def lifespan(app: FastAPI):
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure the production FastAPI application."""
     cfg = settings or get_settings()
+    production = cfg.APP_ENV.strip().casefold() == "production"
 
     app = FastAPI(
         title="Termnova API",
         description="Production-grade AI Contract Intelligence, Agentic Workflows & Hybrid RAG Engine",
         version=__version__,
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        docs_url=None if production else "/docs",
+        redoc_url=None if production else "/redoc",
+        openapi_url=None if production else "/openapi.json",
         lifespan=lifespan,
     )
+    app.state.settings = cfg
 
     # Setup Rate Limiting State & Handlers
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, custom_rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
 
     # Setup Middleware
-    setup_middleware(app, cfg.CORS_ORIGINS)
+    setup_middleware(app, cfg)
 
     # Setup Prometheus Metrics Instrumentator (/metrics)
-    Instrumentator(
-        should_group_status_codes=True,
-        should_ignore_untemplated=True,
-        excluded_handlers=["/metrics", "/health", "/docs", "/openapi.json"],
-    ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=True)
+    if cfg.EXPOSE_METRICS:
+        Instrumentator(
+            should_group_status_codes=True,
+            should_ignore_untemplated=True,
+            excluded_handlers=["/metrics", "/health", "/docs", "/openapi.json"],
+        ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
     # Mount API Routers
     app.include_router(health_router)
@@ -106,6 +112,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(analytics_router)
     app.include_router(compare_router)
     app.include_router(ws_router)
+
+    @app.exception_handler(GuardrailViolationError)
+    async def guardrail_violation_handler(request: Request, exc: GuardrailViolationError):
+        req_id = getattr(request.state, "request_id", "unknown")
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "error": "RequestRejected",
+                "detail": exc.safe_message,
+                "request_id": req_id,
+            },
+        )
 
     # Static UI Files Mounting
     static_dir = Path(__file__).parent.parent / "static"

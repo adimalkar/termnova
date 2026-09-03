@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -148,11 +148,11 @@ class Settings(BaseSettings):
     # ── Security & Rate Limiting (v2) ──
     REQUIRE_AUTH: bool = Field(
         default=False,
-        description="Require X-API-Key header authentication for API routes",
+        description="Require X-API-Key authentication for protected inference routes",
     )
-    API_KEY: str = Field(
-        default="termnova-secret-key-prod",
-        description="Master API key for authenticated operations",
+    API_KEY: SecretStr | None = Field(
+        default=None,
+        description="High-entropy API key for protected inference operations",
     )
     RATE_LIMIT_DEFAULT: str = Field(
         default="60/minute",
@@ -189,6 +189,26 @@ class Settings(BaseSettings):
         default=50, description="Maximum allowed file upload size in MB"
     )
     CORS_ORIGINS: list[str] = Field(default=["*"], description="Allowed CORS origins")
+    EXPOSE_METRICS: bool = Field(
+        default=False,
+        description="Expose the Prometheus endpoint; keep disabled on public services",
+    )
+
+    @model_validator(mode="after")
+    def validate_production_security(self) -> "Settings":
+        """Fail closed when a production deployment lacks inference authentication."""
+        production = self.APP_ENV.strip().casefold() == "production"
+        if production and not self.REQUIRE_AUTH:
+            raise ValueError("REQUIRE_AUTH must be enabled in production")
+        if production and "*" in self.CORS_ORIGINS:
+            raise ValueError("CORS_ORIGINS must use explicit trusted origins in production")
+
+        if self.REQUIRE_AUTH:
+            value = self.API_KEY.get_secret_value() if self.API_KEY else ""
+            if len(value) < 32:
+                raise ValueError("API_KEY must contain at least 32 characters when auth is enabled")
+
+        return self
 
     @property
     def upload_path(self) -> Path:

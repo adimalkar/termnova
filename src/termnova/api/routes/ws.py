@@ -4,12 +4,14 @@ import json
 import uuid
 
 import structlog
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from termnova.api.dependencies import get_settings
 from termnova.api.ws_manager import ws_manager
 from termnova.db.connection import AsyncSessionFactory, _create_async_engine
 from termnova.rag.engine import RAGEngine
+from termnova.rag.guardrails import GuardrailChecker, GuardrailViolationError
+from termnova.security.auth import authenticate_api_key
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["WebSocket"])
@@ -18,6 +20,13 @@ router = APIRouter(tags=["WebSocket"])
 @router.websocket("/ws/query")
 async def websocket_query_endpoint(websocket: WebSocket):
     """Bidirectional streaming Q&A endpoint."""
+    settings = getattr(websocket.app.state, "settings", get_settings())
+    try:
+        authenticate_api_key(websocket.headers.get("x-api-key"), settings)
+    except HTTPException:
+        await websocket.close(code=4401, reason="Authentication required")
+        return
+
     client_id = f"client_{uuid.uuid4().hex[:8]}"
     await ws_manager.connect(websocket, client_id)
 
@@ -45,8 +54,16 @@ async def websocket_query_endpoint(websocket: WebSocket):
                 )
                 continue
 
+            try:
+                GuardrailChecker(settings).validate_input(query_text)
+            except GuardrailViolationError as exc:
+                await ws_manager.send_personal_message(
+                    {"event": "error", "message": exc.safe_message}, client_id
+                )
+                continue
+
             async with session_factory() as session:
-                rag_engine = RAGEngine(session, settings=get_settings())
+                rag_engine = RAGEngine(session, settings=settings)
 
                 try:
                     async for event_line in rag_engine.query_stream(
@@ -58,7 +75,7 @@ async def websocket_query_endpoint(websocket: WebSocket):
                 except Exception as e:
                     logger.error("Error in WS query streaming", error=str(e))
                     await ws_manager.send_personal_message(
-                        {"event": "error", "message": str(e)}, client_id
+                        {"event": "error", "message": "Unable to process the request."}, client_id
                     )
 
     except WebSocketDisconnect:

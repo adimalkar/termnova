@@ -7,6 +7,7 @@ import structlog
 from termnova.config import Settings, get_settings
 from termnova.llm_client import acompletion_with_fallback, provider_available
 from termnova.rag import GradedChunk, RetrievedChunk
+from termnova.security.redaction import redact_secrets
 
 logger = structlog.get_logger(__name__)
 
@@ -71,9 +72,10 @@ class RelevanceGrader:
             return self._heuristic_grade(query, chunk)
 
         try:
+            safe_content, _ = redact_secrets(chunk.content, self.settings)
             prompt = GRADER_PROMPT_TEMPLATE.format(
                 query=query,
-                content=chunk.content[:1500],
+                content=safe_content[:1500],
                 threshold=self.threshold,
             )
 

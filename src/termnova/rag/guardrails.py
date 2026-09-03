@@ -1,11 +1,14 @@
-"""Guardrails engine for hallucination detection, PII redaction, and multi-factor confidence scoring."""
+"""RAG input, output, privacy, and grounding guardrails."""
 
+import hashlib
 import re
+import unicodedata
 
 import structlog
 
 from termnova.config import Settings, get_settings
 from termnova.rag import GeneratedAnswer, GradedChunk, GuardrailResult, HallucinationFlag
+from termnova.security.redaction import redact_secrets
 
 logger = structlog.get_logger(__name__)
 
@@ -17,20 +20,62 @@ PII_PATTERNS = {
     "CREDIT_CARD": re.compile(r"\b(?:\d{4}[-\s]?){3}\d{4}\b"),
 }
 
-# API Key & Secret Leakage Regex Patterns
-SECRET_PATTERNS = {
-    "OPENROUTER_KEY": re.compile(r"\bsk-or-v1-[a-zA-Z0-9]{64}\b|\bsk-or-[a-zA-Z0-9_\-]{20,}\b"),
-    "OPENAI_KEY": re.compile(r"\bsk-[a-zA-Z0-9_\-]{20,}\b"),
-    "GITHUB_TOKEN": re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{36,}\b"),
-    "AWS_KEY": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    "DB_CONNECTION": re.compile(r"\b(?:postgres|postgresql|rediss?):\/\/[^\s\"']+\b"),
-    "JWT_TOKEN": re.compile(
-        r"\beyJ[a-zA-Z0-9_\-]{10,}\.eyJ[a-zA-Z0-9_\-]{10,}\.[a-zA-Z0-9_\-]{10,}\b"
+SAFE_SECURITY_REFUSAL = (
+    "I can only answer questions grounded in the authorized contract corpus. "
+    "I cannot provide protected system instructions, credentials, configuration, or model details."
+)
+
+INPUT_ATTACK_PATTERNS = {
+    "instruction_override": re.compile(
+        r"\b(?:ignore|disregard|forget|override|bypass|disable)\b.{0,80}"
+        r"\b(?:previous|prior|above|system|developer|security|safety|guardrail)\b",
+        re.IGNORECASE | re.DOTALL,
     ),
-    "GENERIC_SECRET": re.compile(
-        r"(?i)(?:api[_-]?key|secret[_-]?key|access[_-]?token)[\s:=]+['\"]?([a-zA-Z0-9_\-]{20,})['\"]?"
+    "prompt_exfiltration": re.compile(
+        r"\b(?:reveal|show|print|display|repeat|dump|return|expose|give\s+me|tell\s+me)\b"
+        r".{0,80}\b(?:system|developer|hidden|initial)\s+(?:prompt|instructions?|message)\b",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    "secret_exfiltration": re.compile(
+        r"\b(?:reveal|show|print|display|dump|return|expose|give\s+me|tell\s+me)\b"
+        r".{0,100}\b(?:your|internal|server|system|environment|configured)\b.{0,60}"
+        r"\b(?:api[- ]?keys?|tokens?|credentials?|passwords?|secrets?|environment\s+variables?|configuration)\b",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    "model_discovery": re.compile(
+        r"(?:\b(?:what|which|reveal|show|identify)\b.{0,30}"
+        r"\b(?:model|llm|provider|api\s+endpoint|base\s+url)\b.{0,50}"
+        r"\b(?:you|your|termnova|configured|powers?)\b|"
+        r"\b(?:model|llm|provider)\b.{0,40}\b(?:are\s+you\s+using|powers?\s+you)\b)",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    "role_injection": re.compile(
+        r"(?:<\|(?:system|developer)\|>|\[(?:system|developer)\]|"
+        r"begin\s+(?:system|developer)\s+(?:prompt|message)|do\s+anything\s+now|jailbreak)",
+        re.IGNORECASE,
     ),
 }
+
+OUTPUT_DISCLOSURE_PATTERNS = (
+    re.compile(
+        r"\b(?:my|this assistant'?s|termnova'?s)\b.{0,50}"
+        r"\b(?:system prompt|developer instructions?|model|llm provider|api endpoint|base url)\b",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    re.compile(
+        r"\b(?:system|developer)\s+(?:prompt|instructions?)\s*(?:is|are|:)\s*",
+        re.IGNORECASE,
+    ),
+)
+
+
+class GuardrailViolationError(ValueError):
+    """A safely reportable rejection raised before retrieval or generation."""
+
+    def __init__(self, category: str):
+        super().__init__(SAFE_SECURITY_REFUSAL)
+        self.category = category
+        self.safe_message = SAFE_SECURITY_REFUSAL
 
 
 class GuardrailChecker:
@@ -40,6 +85,34 @@ class GuardrailChecker:
         self.settings = settings or get_settings()
         self.provider = self.settings.LLM_PROVIDER
         self.model = self.settings.LLM_MODEL
+
+    @staticmethod
+    def _normalize_for_security(text: str) -> str:
+        normalized = unicodedata.normalize("NFKC", text)
+        return normalized.translate({ord(char): None for char in "\u200b\u200c\u200d\ufeff"})
+
+    def validate_input(self, query: str) -> None:
+        """Reject prompt injection and protected-system discovery before any LLM call."""
+        normalized = self._normalize_for_security(query)
+        _, contains_secret = redact_secrets(normalized, self.settings)
+        if contains_secret:
+            logger.warning(
+                "RAG input rejected",
+                category="credential_in_input",
+                query_sha256=hashlib.sha256(query.encode("utf-8")).hexdigest()[:16],
+                query_length=len(query),
+            )
+            raise GuardrailViolationError("credential_in_input")
+
+        for category, pattern in INPUT_ATTACK_PATTERNS.items():
+            if pattern.search(normalized):
+                logger.warning(
+                    "RAG input rejected",
+                    category=category,
+                    query_sha256=hashlib.sha256(query.encode("utf-8")).hexdigest()[:16],
+                    query_length=len(query),
+                )
+                raise GuardrailViolationError(category)
 
     def _split_into_claims(self, text: str) -> list[str]:
         """Split text into distinct propositional sentences, removing headers and citations."""
@@ -132,15 +205,16 @@ class GuardrailChecker:
 
     def _redact_secrets(self, text: str) -> tuple[str, bool]:
         """Detect and sanitize API keys, credentials, database strings, and secret tokens."""
-        redacted = text
-        secret_found = False
+        return redact_secrets(text, self.settings)
 
-        for sec_type, pattern in SECRET_PATTERNS.items():
-            if pattern.search(redacted):
-                secret_found = True
-                redacted = pattern.sub(f"[REDACTED_{sec_type}]", redacted)
-
-        return redacted, secret_found
+    def sanitize_public_text(self, text: str) -> tuple[str, bool]:
+        """Remove credentials and internal assistant configuration from public text."""
+        sanitized, pii_found = self._redact_pii(text)
+        sanitized, secret_found = self._redact_secrets(sanitized)
+        disclosure_found = any(pattern.search(sanitized) for pattern in OUTPUT_DISCLOSURE_PATTERNS)
+        if disclosure_found:
+            return SAFE_SECURITY_REFUSAL, True
+        return sanitized, pii_found or secret_found
 
     def _compute_confidence(
         self,
@@ -165,8 +239,7 @@ class GuardrailChecker:
     ) -> GuardrailResult:
         """Run all guardrails checks across generation, privacy, and secret defense."""
         # 1. PII and Secret Redaction
-        sanitized_text, pii_redacted = self._redact_pii(answer.answer_text)
-        sanitized_text, secret_redacted = self._redact_secrets(sanitized_text)
+        sanitized_text, sensitive_redacted = self.sanitize_public_text(answer.answer_text)
 
         # 2. Hallucination and Faithfulness Audit
         faithfulness_score, hallucination_flags = await self._audit_hallucinations(
@@ -188,14 +261,13 @@ class GuardrailChecker:
             faithfulness=faithfulness_score,
             confidence=confidence_score,
             flags_count=len(hallucination_flags),
-            pii_redacted=pii_redacted,
-            secret_redacted=secret_redacted,
+            sensitive_redacted=sensitive_redacted,
         )
 
         return GuardrailResult(
             faithfulness_score=faithfulness_score,
             hallucination_flags=hallucination_flags,
-            pii_redacted=pii_redacted or secret_redacted,
+            pii_redacted=sensitive_redacted,
             redacted_answer=sanitized_text,
             confidence_score=confidence_score,
             passed=passed,

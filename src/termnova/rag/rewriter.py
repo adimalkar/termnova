@@ -122,8 +122,8 @@ class QueryRewriter:
 
         logger.info(
             "Query rewritten",
-            original=clean_query,
-            rewritten=rewritten_text,
+            original_length=len(clean_query),
+            rewritten_length=len(rewritten_text),
             strategy=strategy,
             sub_queries_count=len(sub_queries),
         )
