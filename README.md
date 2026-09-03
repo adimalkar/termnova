@@ -1,22 +1,21 @@
 <div align="center">
 
 # 📑 Termnova
-### Production-Grade AI Contract Intelligence Platform with Hybrid RAG, LangGraph Agents & Responsible AI Guardrails
+### Beta AI Contract Intelligence Platform with Hybrid Retrieval and Source-Linked Answers
 
 [![Live Deployment](https://img.shields.io/badge/Live%20Demo-termnova.onrender.com-00C7B7.svg?logo=render&logoColor=white)](https://termnova.onrender.com)
-[![System Health](https://img.shields.io/badge/Status-100%25%20Operational-brightgreen.svg)](https://termnova.onrender.com/health)
-[![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.14-blue.svg)](https://www.python.org/)
+[![Status](https://img.shields.io/badge/Status-Beta-orange.svg)](https://termnova.onrender.com/health)
+[![Python Version](https://img.shields.io/badge/CI-Python%203.11-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![OpenRouter](https://img.shields.io/badge/OpenRouter-Llama%203.3%20%7C%20Gemini%202.0-6366F1.svg)](https://openrouter.ai)
+[![Models](https://img.shields.io/badge/Models-OpenCode%20%2B%20OpenRouter-6366F1.svg)](https://opencode.ai/zen)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%20(pgvector)-336791.svg?logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
 [![Celery](https://img.shields.io/badge/Celery-Distributed%20Tasks-37814A.svg?logo=celery&logoColor=white)](https://docs.celeryq.dev)
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-Tracing%20%26%20Metrics-F54C00.svg?logo=opentelemetry&logoColor=white)](https://opentelemetry.io)
-[![Tests](https://img.shields.io/badge/Tests-43%20Passed%20(100%25)-brightgreen.svg)](https://github.com/adimalkar/termnova/actions)
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
 
 <p align="center">
   🌐 <strong>Live Application:</strong> <a href="https://termnova.onrender.com"><strong>https://termnova.onrender.com</strong></a><br>
-  <em>Enterprise contract analysis combining dense semantic embeddings, BM25 keyword matching, Reciprocal Rank Fusion (RRF), Cross-Encoder re-ranking, LangGraph multi-step agents, clause-by-clause comparison, and automated hallucination guardrails.</em>
+  <em>Contract analysis combining dense semantic embeddings, PostgreSQL full-text search, Reciprocal Rank Fusion (RRF), optional re-ranking, clause comparison, and source-linked answer checks.</em>
 </p>
 
 </div>
@@ -29,7 +28,7 @@ Enterprises manage thousands of high-stakes vendor agreements, Master Services A
 
 Conversely, naive single-pass RAG systems frequently hallucinate terms, lose clause context, fail on exact contract identifiers (`SOW-2024-08`), and leak sensitive PII.
 
-**Termnova** is an end-to-end, production-ready AI platform engineered to parse, index, retrieve, evaluate, compare, and audit enterprise contracts with **100% evidence-grounded answers** and sub-second query latency.
+**Termnova** is a beta contract-intelligence platform for parsing, indexing, retrieving, comparing, and reviewing agreements. Generated output can be incomplete or incorrect and must be reviewed against its linked source excerpts; latency varies by provider, corpus, and deployment size.
 
 ---
 
@@ -57,7 +56,7 @@ Conversely, naive single-pass RAG systems frequently hallucinate terms, lose cla
 │  │                                        ▼                                         │  │
 │  │   ┌──────────────────────────────────────────────────────────────────────────┐   │  │
 │  │   │ Two-Stage Hybrid Retrieval                                               │   │  │
-│  │   │  ├─ Stage 1 (Fast Recall): Dense pgvector + Sparse BM25 via RRF (k=60)   │   │  │
+│  │   │  ├─ Stage 1: pgvector + PostgreSQL full-text search via RRF (k=60)       │   │  │
 │  │   │  └─ Stage 2 (Precision): Cross-Encoder Re-Ranking with MMR Diversity     │   │  │
 │  │   └────────────────────────────────────┬─────────────────────────────────────┘   │  │
 │  │                                        ▼                                         │  │
@@ -93,15 +92,15 @@ Conversely, naive single-pass RAG systems frequently hallucinate terms, lose cla
 | Feature | Description |
 |---|---|
 | 🤖 **LangGraph Agentic RAG** | Multi-step stateful reasoning graph with intent classification, multi-part decomposition, self-correction loops on poor relevance, and maximum retry bounds. |
-| 🔍 **Two-Stage Hybrid Retrieval** | Fuses dense vector cosine similarity (pgvector) with BM25 keyword matching via Reciprocal Rank Fusion (RRF $k=60$), followed by Cross-Encoder secondary re-ranking with Maximal Marginal Relevance (MMR) diversity. |
+| 🔍 **Hybrid Retrieval** | Fuses indexed pgvector cosine similarity with PostgreSQL full-text ranking via Reciprocal Rank Fusion (RRF $k=60$); optional Cross-Encoder re-ranking is disabled in the lean deployment by default. |
 | 🔄 **Contextual Memory & HyDE** | Resolves follow-up relative queries across conversation turns and expands vague prompts with Hypothetical Document Embeddings. |
 | ⚡ **Async Distributed Ingestion** | Background Celery task processing with Redis broker and Flower monitoring dashboard (`:5555`) for non-blocking OCR and vectorization. |
 | 📊 **Full Observability Suite** | OpenTelemetry distributed tracing across all pipeline stages + Prometheus `/metrics` endpoint tracking query latency, token usage, and hallucination rates. |
 | 📑 **Clause Comparison & Diffing** | Semantic clause alignment pairing corresponding sections across agreements with inline redline diffs and automated financial discrepancy extraction. |
-| 🏷️ **Evidence-Grounded Citations** | Every factual claim links to interactive `[Source N]` tags mapped to document filename, page number, and original chunk excerpts in a slide-out drawer. |
+| 🏷️ **Source-Linked Citations** | Generated `[Source N]` tags map to document filename, page number, and chunk excerpts for reviewer verification; citation presence is not a correctness guarantee. |
 | 🛡️ **Responsible AI Guardrails** | Propositional claim entailment audit, sensitive PII redaction (SSNs, emails, phone numbers), and composite confidence scoring. |
 | 🌐 **WebSocket Live Streaming** | Bidirectional WebSocket channel (`/ws/query`, `/ws/notifications`) with real-time token streaming and ingestion progress alerts. |
-| 🔒 **Security & Rate Limiting** | SlowAPI rate limiting (20 req/min for RAG queries) and API key authentication middleware. |
+| 🔒 **Current Security Controls** | SlowAPI rate limiting plus an optional verified [OIDC/JWKS or service-key request-principal boundary](docs/authentication.md). OIDC activation, SAML/SCIM, membership-backed RBAC, and database tenant isolation remain deployment/roadmap work and are not claimed here. |
 
 ---
 
@@ -211,4 +210,3 @@ AI Engineer | MS Data Science (Stevens Institute of Technology)
 - **Email:** [adityamalkar0@gmail.com](mailto:adityamalkar0@gmail.com)  
 - **GitHub:** [@adimalkar](https://github.com/adimalkar)  
 - **LinkedIn:** [Aditya Malkar](https://linkedin.com/in/aditya-malkar)
-

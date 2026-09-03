@@ -1,5 +1,7 @@
 # Feature Plan 5: Cross-Contract Intelligence & Clause Heatmap
 
+> **2026 product direction:** The portfolio analytics in this document remain useful for Phase 4, but they are not a substitute for contract-family intelligence. The family experience is being reworked around effective terms, amendment precedence, scope/as-of-date resolution, conflicts, and downstream action. Use [the Contract-Family Effective-Term Workbench plan](../docs/contract-family-workbench-plan.md) as the implementation source for family behavior, and [the enterprise roadmap](../docs/control-tower-roadmap.md) for phase ordering.
+
 ## What We're Building
 
 A **portfolio-wide analytics engine** that turns your collection of individual contracts into actionable intelligence. Instead of knowing "this contract has an uncapped liability clause," you know "47% of our contracts have uncapped liability, but only with vendors under $100K — our 3 largest vendors all have caps." Features:

@@ -30,6 +30,8 @@ dependencies = [
     "tenacity>=8.2.3",
     "rich>=13.7.0",
     "typer>=0.12.0",
+    "numpy>=1.26.0",
+    "boto3>=1.35.0",
 ]
 
 [project.optional-dependencies]
@@ -40,6 +42,8 @@ api = [
     "sse-starlette>=2.0.0",
     "redis>=5.0.3",
     "websockets>=12.0",
+    "slowapi>=0.1.9",
+    "python-jose[cryptography]>=3.5.0",
 ]
 pipeline = [
     "pypdf>=4.1.0",
@@ -72,8 +76,6 @@ observability = [
     "prometheus-fastapi-instrumentator>=7.0.0",
 ]
 security = [
-    "slowapi>=0.1.9",
-    "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
 ]
 eval = [

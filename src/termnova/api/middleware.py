@@ -30,6 +30,7 @@ class RequestCorrelationMiddleware(BaseHTTPMiddleware):
 
         # Log access event if not health check polling
         if not request.url.path.endswith("/health"):
+            principal = getattr(request.state, "principal", None)
             logger.info(
                 "HTTP Request",
                 method=request.method,
@@ -37,6 +38,8 @@ class RequestCorrelationMiddleware(BaseHTTPMiddleware):
                 status=response.status_code,
                 duration_ms=duration_ms,
                 request_id=req_id,
+                organization_id=getattr(principal, "organization_id", None),
+                auth_method=getattr(principal, "auth_method", None),
             )
 
         return response

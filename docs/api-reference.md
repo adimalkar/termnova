@@ -15,11 +15,11 @@ Returns the operational readiness of the application, database, cache, and activ
 ```json
 {
   "status": "healthy",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "database": "healthy",
   "redis": "healthy",
-  "llm_provider": "openai",
-  "embedding_model": "text-embedding-3-small",
+  "llm_provider": "opencode",
+  "embedding_model": "openai/text-embedding-3-small",
   "timestamp": "2026-08-15T06:45:00.000Z"
 }
 ```
@@ -33,14 +33,14 @@ curl -s http://localhost:8000/health
 ## 2. Natural Language Contract Q&A
 
 ### `POST /api/v1/query`
-Executes hybrid retrieval (dense pgvector + sparse BM25 with RRF), grades relevance, generates an answer with citation mapping, and audits output through guardrails.
+Executes hybrid retrieval (dense pgvector + PostgreSQL full-text ranking with RRF), grades relevance, generates an answer with citation mapping, and audits output through guardrails.
 
 #### Request Body
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `query` | string | Yes | - | Natural language question (2 to 2000 chars) |
 | `conversation_id` | UUID | No | null | Optional session UUID |
-| `top_k` | integer | No | 5 | Max candidate chunks to retrieve (1-20) |
+| `top_k` | integer | No | 10 | Max candidate chunks to retrieve (1-50) |
 | `stream` | boolean | No | false | Whether to stream output via Server-Sent Events |
 
 ```json
@@ -109,19 +109,20 @@ Records user satisfaction ratings (1 to 5 stars) for model performance scoring a
 ## 3. Document Repository Management
 
 ### `POST /api/v1/documents/upload`
-Uploads and parses a contract document (`.pdf`, `.docx`, `.txt`). Extracts structured pages, detects section headings, generates vector embeddings, and stores chunk records.
+Stores a contract document (`.pdf`, `.docx`, `.doc`, `.txt`, or `.md`) and queues parsing, chunking, embedding, and indexing on the ingestion worker.
 
 #### Form Data
 - `file`: Multipart file binary
 
-#### Response `201 Created`
+#### Response `202 Accepted`
 ```json
 {
   "document_id": "afef44a4-c5c9-4876-99b6-70ca50eea699",
   "filename": "sample_msa.pdf",
   "file_type": "pdf",
-  "status": "completed",
-  "message": "Contract 'sample_msa.pdf' successfully ingested into knowledge base."
+  "status": "pending",
+  "task_id": "9a8b7c6d-5e4f-3210-9876-123456789abc",
+  "message": "Contract stored and queued for background parsing and indexing."
 }
 ```
 
@@ -129,6 +130,9 @@ Uploads and parses a contract document (`.pdf`, `.docx`, `.txt`). Extracts struc
 curl -X POST http://localhost:8000/api/v1/documents/upload \
   -F "file=@data/eval/sample_contracts/sample_msa.pdf"
 ```
+
+Poll `GET /api/v1/documents/tasks/{task_id}` for worker state and
+`GET /api/v1/documents/{document_id}` for durable processing status and errors.
 
 ---
 

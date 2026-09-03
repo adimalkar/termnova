@@ -1,13 +1,13 @@
 # Termnova System Architecture & Engineering Design
 
-> **Production-Grade Enterprise AI Contract Intelligence Platform**  
+> **Beta AI Contract Intelligence Platform — Current Implemented Architecture**
 > Engineered by **Aditya Malkar**
 
 ---
 
 ## 1. System Overview
 
-**Termnova** is an autonomous, evidence-grounded Retrieval-Augmented Generation (RAG) platform designed to parse, index, search, and analyze complex enterprise legal contracts (Master Services Agreements, Statements of Work, NDAs, Vendor SLAs, and Commercial Leases).
+**Termnova** is a contract-focused Retrieval-Augmented Generation (RAG) platform designed to parse, index, search, and analyze agreements. It is a beta system: generated answers and extracted facts require review against the linked source text. A provider-neutral OIDC/JWKS request-principal boundary is available but must be configured; membership-backed authorization and database tenant isolation remain roadmap work.
 
 Traditional naive single-pass RAG pipelines frequently suffer from:
 1. **Low Keyword Recall:** Dense embedding search misses exact clause numbers (`ARTICLE 6.1`), currency thresholds (`$2,500,000`), and specific identifiers.
@@ -17,7 +17,7 @@ Traditional naive single-pass RAG pipelines frequently suffer from:
 
 Termnova solves these challenges through an integrated 5-stage architecture:
 - **Structure-Aware Document Ingestion:** Extracts pages, preserves section boundaries, and tracks exact character offsets.
-- **Hybrid Retrieval (Dense + Sparse with RRF):** Fuses pgvector cosine similarity with BM25 keyword matching via Reciprocal Rank Fusion.
+- **Hybrid Retrieval (Dense + Sparse with RRF):** Fuses pgvector cosine similarity with indexed PostgreSQL full-text ranking via Reciprocal Rank Fusion.
 - **Relevance Grading:** Filters out low-relevance candidates before generation.
 - **Citation-Grounded Answer Generation:** Generates responses with `[Source N]` attribution tags linking to document, page, and chunk.
 - **Responsible AI Guardrails:** Automated claim-level entailment auditing, PII scrubbing, and multi-factor confidence scoring.
@@ -42,7 +42,7 @@ graph TD
     subgraph Hybrid Retrieval Engine
         Query["User Query"] --> EmbedQuery["Embed Query Vector"]
         EmbedQuery --> DenseSearch["Dense Semantic Search (pgvector)"]
-        Query --> SparseSearch["Sparse Keyword Search (BM25Okapi)"]
+        Query --> SparseSearch["PostgreSQL Full-Text Search (GIN)"]
         DenseSearch --> RRF["Reciprocal Rank Fusion (RRF k=60)"]
         SparseSearch --> RRF
         RRF --> Filter["Relevance Threshold Filter"]
@@ -78,8 +78,7 @@ To achieve high recall across both conceptual legal queries and exact terminolog
 
 1. **Semantic Vector Search:** Computes dense cosine similarity between query embedding and chunk vectors stored in PostgreSQL:
    $$\text{Sim}_{\text{dense}}(q, d) = \frac{\vec{q} \cdot \vec{d}}{\|\vec{q}\| \|\vec{d}\|}$$
-2. **BM25 Sparse Keyword Search:** Evaluates term frequency and inverse document frequency across in-memory tokenized corpus:
-   $$\text{Score}_{\text{BM25}}(q, d) = \sum_{t \in q} \text{IDF}(t) \cdot \frac{f(t, d) \cdot (k_1 + 1)}{f(t, d) + k_1 \cdot (1 - b + b \cdot \frac{|d|}{\text{avgdl}})}$$
+2. **PostgreSQL Full-Text Search:** Uses an English `tsvector`, a GIN index, `websearch_to_tsquery`, and `ts_rank_cd` without rebuilding an application-memory corpus.
 3. **Reciprocal Rank Fusion (RRF):** Merges both ranked lists using rank reciprocal smoothing ($k = 60$):
    $$\text{Score}_{\text{RRF}}(d) = \frac{w_{\text{dense}}}{60 + r_{\text{dense}}(d)} + \frac{w_{\text{sparse}}}{60 + r_{\text{sparse}}(d)}$$
    where $w_{\text{dense}} = 0.60$ and $w_{\text{sparse}} = 0.40$.
@@ -158,5 +157,5 @@ erDiagram
 ## 5. Caching & Performance Architecture
 
 - **Redis Query Deduplication:** Hashes incoming query strings and stores high-confidence responses with a 300-second TTL.
-- **In-Memory BM25 Corpus:** Cached in memory during application runtime and refreshed on new document uploads.
+- **Database-Maintained Lexical Index:** PostgreSQL updates each chunk's `tsvector`; no process-local corpus cache is required.
 - **Asynchronous Execution:** All database transactions and external model calls use `asyncio` and `asyncpg` connection pools.

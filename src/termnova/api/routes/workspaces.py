@@ -8,10 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from termnova.api.dependencies import get_db, get_settings
-from termnova.api.identity import get_desk_actor, resolve_actor_name
+from termnova.api.identity import resolve_actor_name
 from termnova.api.ws_manager import ws_manager
 from termnova.config import Settings
 from termnova.db.models import Workspace
+from termnova.security.auth import RequestPrincipal, get_current_principal
 from termnova.workspace.schemas import (
     MessageCreateRequest,
     MessagePatchRequest,
@@ -74,14 +75,14 @@ def _to_message_response(msg: Any) -> WorkspaceMessageResponse:
 async def create_workspace(
     payload: WorkspaceCreateRequest,
     session: AsyncSession = Depends(get_db),
-    actor: str = Depends(get_desk_actor),
+    principal: RequestPrincipal = Depends(get_current_principal),
 ) -> WorkspaceResponse:
     """Create a new collaborative workspace scoped to specific documents."""
     service = WorkspaceService(session)
     ws = await service.create_workspace(
         name=payload.name,
         document_scope=payload.document_scope,
-        created_by=resolve_actor_name(payload.created_by, actor),
+        created_by=resolve_actor_name(payload.created_by, principal),
         description=payload.description,
     )
     return _to_workspace_response(
@@ -96,12 +97,12 @@ async def list_workspaces(
         None, description="Optional user name to calculate unread message counts"
     ),
     session: AsyncSession = Depends(get_db),
-    actor: str = Depends(get_desk_actor),
+    principal: RequestPrincipal = Depends(get_current_principal),
 ) -> list[WorkspaceResponse]:
     """List all active team workspaces with stats and unread counts."""
     service = WorkspaceService(session)
     items = await service.list_workspaces(
-        user_name=user_name or actor, include_archived=include_archived
+        user_name=resolve_actor_name(user_name, principal), include_archived=include_archived
     )
     return [
         _to_workspace_response(
@@ -120,15 +121,19 @@ async def list_workspaces(
 @router.post("/{workspace_id}/read", status_code=status.HTTP_204_NO_CONTENT)
 async def mark_workspace_read(
     workspace_id: uuid.UUID,
-    user_name: str = Query(..., description="User name to mark workspace read for"),
+    user_name: str | None = Query(None, description="Local-demo user name to mark as read"),
     session: AsyncSession = Depends(get_db),
+    principal: RequestPrincipal = Depends(get_current_principal),
 ) -> None:
     """Mark all workspace messages as read for a member."""
     service = WorkspaceService(session)
     ws = await service.get_workspace(workspace_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
-    await service.mark_workspace_read(workspace_id=workspace_id, user_name=user_name)
+    await service.mark_workspace_read(
+        workspace_id=workspace_id,
+        user_name=resolve_actor_name(user_name, principal),
+    )
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceDetailResponse)
@@ -303,7 +308,7 @@ async def send_workspace_message(
     workspace_id: uuid.UUID,
     payload: MessageCreateRequest,
     session: AsyncSession = Depends(get_db),
-    actor: str = Depends(get_desk_actor),
+    principal: RequestPrincipal = Depends(get_current_principal),
 ) -> WorkspaceMessageResponse:
     """Send a human message to the workspace feed and broadcast in real-time."""
     service = WorkspaceService(session)
@@ -314,7 +319,7 @@ async def send_workspace_message(
     msg = await service.add_message(
         workspace_id=workspace_id,
         content=payload.content,
-        user_name=resolve_actor_name(payload.user_name, actor),
+        user_name=resolve_actor_name(payload.user_name, principal),
         message_type="human",
         parent_message_id=payload.parent_message_id,
     )
@@ -336,6 +341,7 @@ async def patch_workspace_message(
     message_id: uuid.UUID,
     payload: MessagePatchRequest,
     session: AsyncSession = Depends(get_db),
+    principal: RequestPrincipal = Depends(get_current_principal),
 ) -> WorkspaceMessageResponse:
     """Toggle message pin status or emoji reactions."""
     service = WorkspaceService(session)
@@ -344,17 +350,15 @@ async def patch_workspace_message(
         msg = await service.toggle_pin_message(
             message_id=message_id, workspace_id=workspace_id, is_pinned=payload.is_pinned
         )
-    elif payload.reaction and payload.user_name:
+    elif payload.reaction:
         msg = await service.toggle_reaction(
             message_id=message_id,
             workspace_id=workspace_id,
             reaction=payload.reaction,
-            user_name=payload.user_name,
+            user_name=resolve_actor_name(payload.user_name, principal),
         )
     else:
-        raise HTTPException(
-            status_code=400, detail="Must provide is_pinned or reaction with user_name"
-        )
+        raise HTTPException(status_code=400, detail="Must provide is_pinned or reaction")
 
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found in this workspace")
@@ -390,7 +394,7 @@ async def execute_scoped_workspace_query(
     payload: ScopedQueryRequest,
     session: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    actor: str = Depends(get_desk_actor),
+    principal: RequestPrincipal = Depends(get_current_principal),
 ) -> ScopedQueryResponse:
     """Execute natural language AI RAG query scoped to the workspace's contracts."""
     service = WorkspaceService(session)
@@ -398,7 +402,7 @@ async def execute_scoped_workspace_query(
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
 
-    speaker = resolve_actor_name(payload.user_name, actor)
+    speaker = resolve_actor_name(payload.user_name, principal)
 
     # 1. Broadcast AI thinking state
     await ws_manager.broadcast_to_channel(

@@ -2,7 +2,7 @@
 # Termnova — Production Multi-Stage Container Build
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# Stage 1: Build & Dependencies
+# Stage 1: Web dependencies (no document parsers or local transformer stack)
 FROM python:3.11-slim AS builder
 
 WORKDIR /app
@@ -14,8 +14,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md /app/
+COPY src/ /app/src/
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir ".[api,pipeline,llm,agents,queue,observability,security,eval]"
+    pip install --no-cache-dir ".[api,llm,agents,queue,observability,security]"
 
 # Stage 2: Production Runtime
 FROM python:3.11-slim AS runtime
@@ -33,8 +34,8 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application source & configurations
 COPY src/ /app/src/
-COPY db/ /app/db/
-COPY data/ /app/data/
+COPY alembic/ /app/alembic/
+COPY alembic.ini /app/
 COPY pyproject.toml README.md /app/
 
 # Install the termnova package in editable mode without reinstalling dependencies
@@ -52,4 +53,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=15s \
     CMD curl -f http://localhost:8000/health || exit 1
 
-CMD ["uvicorn", "termnova.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "termnova.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--limit-concurrency", "100"]
