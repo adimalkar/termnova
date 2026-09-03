@@ -62,6 +62,20 @@ alembic upgrade head
 alembic current
 ```
 
+If the first `alembic current` command prints no revision, the existing
+database was created outside Alembic and must be baselined before deployment.
+Do not run `alembic upgrade head` from that state because Alembic would attempt
+to recreate existing tables. From the currently deployed PR 33 image, run:
+
+```bash
+alembic stamp 4c2a5f9e8d71
+alembic current
+```
+
+The second command must report `4c2a5f9e8d71`. Stamping changes only Alembic's
+revision marker; it does not change application tables or contract data. The
+next deployment can then apply the reconciliation revision normally.
+
 The reconciliation is idempotent: it restores the generated full-text column,
 its GIN index, and the 2048-dimensional embedding column/index only when they
 are missing or incompatible.
