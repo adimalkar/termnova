@@ -63,7 +63,7 @@ Invoices are payable Net 30 days from receipt.
         "/api/v1/documents/upload",
         files={"file": ("alpha_msa_2026.txt", io.BytesIO(doc_a_text), "text/plain")},
     )
-    assert upload_a.status_code == 201
+    assert upload_a.status_code == 202
     doc_a_id = upload_a.json()["document_id"]
 
     # 2. Upload Document B (Vendor agreement with indemnity and payment, missing data protection)
@@ -80,7 +80,7 @@ All trade secrets are confidential for 5 years.
         "/api/v1/documents/upload",
         files={"file": ("cloudpulse_vendor_agreement.txt", io.BytesIO(doc_b_text), "text/plain")},
     )
-    assert upload_b.status_code == 201
+    assert upload_b.status_code == 202
     _ = upload_b.json()["document_id"]
 
     # 3. Fetch Portfolio Summary

@@ -20,7 +20,7 @@
   <meta property="og:url" content="https://termnova.onrender.com/">
   <meta property="og:site_name" content="Termnova">
   <meta property="og:title" content="Termnova — AI Contract Intelligence & Knowledge Graph">
-  <meta property="og:description" content="Production-grade AI contract intelligence platform with hybrid RAG, LangGraph agents, multi-contract knowledge graph topology, and semantic clause redlining.">
+  <meta property="og:description" content="Beta AI contract intelligence platform with hybrid retrieval, multi-contract knowledge graphs, and semantic clause comparison.">
   <meta property="og:image" content="https://termnova.onrender.com/static/assets/favicon.jpg">
   <meta property="og:locale" content="en_US">
 
@@ -76,7 +76,7 @@
         ],
         "url": "https://termnova.onrender.com/",
         "headline": "Termnova — AI Contract Intelligence Platform",
-        "description": "Production-grade AI contract intelligence platform with hybrid RAG, contract knowledge graph topology, review inbox, and semantic clause redlining.",
+        "description": "Beta AI contract intelligence platform with hybrid retrieval, contract knowledge graphs, review inbox, and semantic clause comparison.",
         "publisher": {
           "@id": "https://termnova.onrender.com/#organization"
         },
@@ -89,7 +89,7 @@
         "url": "https://termnova.onrender.com/",
         "applicationCategory": "BusinessApplication",
         "operatingSystem": "All Platforms, Web Browser",
-        "description": "Production-grade AI contract intelligence platform with hybrid vector & BM25 RAG, LangGraph multi-step agents, interactive contract knowledge graph visualizer, and clause redlining.",
+        "description": "AI contract intelligence platform with pgvector and PostgreSQL full-text retrieval, interactive contract knowledge graphs, and clause comparison.",
         "offers": {
           "@type": "Offer",
           "price": "0",
@@ -99,7 +99,7 @@
           "Verifiable AI Contract Q&A with direct page citation drawer",
           "Interactive Contract Knowledge Graph & Topology Visualizer",
           "Side-by-Side Clause Redline & Side-by-Side Difference Detection",
-          "Hybrid Reciprocal Rank Fusion (BM25 + Dense Vectors)",
+          "Hybrid Reciprocal Rank Fusion (PostgreSQL FTS + Dense Vectors)",
           "Zero-retention AI guardrails with PII and secret redaction"
         ],
         "author": {
@@ -127,7 +127,7 @@
             "name": "What is Termnova?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Termnova is an open, enterprise-grade AI contract intelligence engine featuring hybrid RAG, interactive knowledge graph visualization, clause diffing, and security guardrails."
+              "text": "Termnova is a beta AI contract intelligence project featuring hybrid retrieval, knowledge graph visualization, clause comparison, and source-linked answers."
             }
           },
           {
@@ -143,7 +143,7 @@
             "name": "Is confidential contract data safe with Termnova?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Yes. Termnova enforces strict zero-data-retention AI guardrails, real-time PII/secret redaction, TLS 1.3 encryption, and guarantees uploaded documents are never used for model training."
+              "text": "Termnova supports PII and secret redaction, but this beta does not yet provide enterprise tenant isolation or a universal zero-retention guarantee. Data handling depends on the configured model and storage providers; review those policies before uploading confidential contracts."
             }
           },
           {
@@ -1218,26 +1218,26 @@
 
       <!-- ════ SEO SEMANTIC CRAWL CONTENT & CAPABILITIES INDEX ════ -->
       <section class="sr-only" aria-label="Termnova AI Contract Intelligence Capabilities">
-        <h1>Termnova — Enterprise AI Contract Intelligence, Knowledge Graph & Clause Diffing</h1>
-        <p>Termnova is an advanced, production-grade legal intelligence platform. Built for corporate legal teams, law firms, procurement managers, and contract administrators to analyze agreements, uncover risks, detect clause modifications, and map multi-contract relationships.</p>
+        <h1>Termnova — Beta AI Contract Intelligence, Knowledge Graph & Clause Comparison</h1>
+        <p>Termnova is a beta legal intelligence platform for teams evaluating agreement analysis, risk discovery, clause changes, and multi-contract relationships. AI output requires source review and is not legal advice.</p>
         
         <h2>Core Capabilities & Features</h2>
         <ul>
-          <li><strong>Contract Studio & Hybrid RAG:</strong> Natural language query answering with reciprocal rank fusion (BM25 + Dense Vectors) and verbatim page-level source citations.</li>
+          <li><strong>Contract Studio & Hybrid RAG:</strong> Natural language query answering with reciprocal rank fusion (PostgreSQL FTS + dense vectors) and page-level source excerpts.</li>
           <li><strong>Document Map & Contract Knowledge Graph:</strong> AI-powered entity extraction mapping parent Master Services Agreements (MSAs), Statements of Work (SOWs), Amendments, counterparty entities, and governing jurisdictions with D3.js force layouts.</li>
           <li><strong>Clause Redline & Side-by-Side Diff:</strong> Semantic difference highlighting detecting modifications in financial terms, liability caps, indemnification clauses, and termination windows.</li>
-          <li><strong>Document Vault & Vector Repository:</strong> Secure multi-format ingestion supporting PDF, DOCX, TXT, and Markdown files with pgvector partition isolation.</li>
-          <li><strong>Enterprise Guardrails & Safety:</strong> Real-time PII redaction, API secret scrubbing, and zero AI model training retention guarantee.</li>
+          <li><strong>Document Vault & Vector Repository:</strong> Multi-format ingestion supporting PDF, DOCX, TXT, and Markdown files with pgvector indexing. Tenant isolation is not yet production-ready.</li>
+          <li><strong>Current Guardrails:</strong> PII and API-secret redaction assist reviewers, but provider retention and training policies depend on deployment configuration.</li>
         </ul>
 
         <h2>Frequently Asked Questions</h2>
         <article>
           <h3>What is Termnova?</h3>
-          <p>Termnova is an open enterprise AI contract intelligence platform engineered with LangGraph multi-step reasoning agents, hybrid RAG, and PostgreSQL graph topology.</p>
+          <p>Termnova is a beta contract intelligence project with hybrid retrieval, optional LangGraph flows, and PostgreSQL-backed contract relationships.</p>
         </article>
         <article>
           <h3>How does Termnova protect confidential legal documents?</h3>
-          <p>All contract data is processed with zero-retention policies. No customer contract data is ever used to train third-party foundation models. Real-time guardrails sanitize sensitive PII and API keys.</p>
+          <p>The application can redact common PII and API-key patterns, but enterprise tenant isolation and universal zero-retention controls are not yet implemented. Review the configured model and storage provider policies before using confidential data.</p>
         </article>
         <article>
           <h3>What contract types are supported?</h3>

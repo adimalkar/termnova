@@ -1,5 +1,6 @@
 """Query processing and natural language Q&A endpoints."""
 
+import hashlib
 import json
 import uuid
 
@@ -28,6 +29,40 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/query", tags=["Query & RAG Analysis"])
 
 
+def _build_query_cache_key(
+    payload: QueryRequest,
+    settings: Settings,
+    corpus_version: str | bytes,
+) -> str:
+    """Build a deterministic cache key over every answer-affecting input."""
+    scope = (
+        "all"
+        if payload.document_ids is None
+        else ",".join(sorted(str(item) for item in payload.document_ids)) or "empty"
+    )
+    version = corpus_version.decode() if isinstance(corpus_version, bytes) else corpus_version
+    cache_payload = {
+        "schema": settings.CACHE_SCHEMA_VERSION,
+        "corpus": version,
+        "provider": settings.LLM_PROVIDER,
+        "model": settings.LLM_MODEL,
+        "embedding_provider": settings.EMBEDDING_PROVIDER,
+        "embedding_model": settings.EMBEDDING_MODEL,
+        "query": payload.query.strip().casefold(),
+        "scope": scope,
+        "top_k": payload.top_k,
+        "threshold": settings.RELEVANCE_THRESHOLD,
+        "grader": settings.USE_LLM_GRADER,
+        "rewrite": settings.USE_LLM_REWRITE,
+        "reranker": settings.USE_RERANKER,
+        "reranker_model": settings.RERANKER_MODEL if settings.USE_RERANKER else None,
+    }
+    query_hash = hashlib.sha256(
+        json.dumps(cache_payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return f"query_cache:{settings.CACHE_SCHEMA_VERSION}:{query_hash}"
+
+
 @router.post("", response_model=QueryResponse)
 async def ask_question(
     payload: QueryRequest,
@@ -49,8 +84,13 @@ async def ask_question(
 
     # Check cache if available. Scope must be part of the key or a one-contract
     # ask would be served an answer from the whole book.
-    scope = ",".join(sorted(str(i) for i in (payload.document_ids or [])))
-    cache_key = f"query_cache:{hash(payload.query.strip().lower())}:{scope}"
+    corpus_version = "0"
+    if redis_client is not None:
+        try:
+            corpus_version = await redis_client.get("rag:corpus_version") or "0"
+        except Exception as e:
+            logger.warning("Corpus cache version lookup failed", error=str(e))
+    cache_key = _build_query_cache_key(payload, settings, corpus_version)
     if redis_client is not None:
         try:
             cached = await redis_client.get(cache_key)

@@ -23,7 +23,7 @@ async def test_contract_intake_to_triage_inbox_e2e(api_client: AsyncClient):
         "file": ("enterprise_cloud_msa_2026.txt", io.BytesIO(msa_content), "text/plain")
     }
     upload_res = await api_client.post("/api/v1/documents/upload", files=file_payload)
-    assert upload_res.status_code == 201
+    assert upload_res.status_code == 202
     doc_id = upload_res.json()["document_id"]
 
     # 2. Check Document Ingestion Status
