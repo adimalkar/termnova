@@ -1,6 +1,7 @@
 """Integration coverage for resumable embedding regeneration."""
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from termnova.db.models import Chunk, Document
@@ -52,3 +53,18 @@ async def test_reembedding_is_committed_in_resumable_batches(test_session: Async
         await test_session.refresh(chunk)
         assert chunk.embedding is not None
         assert len(chunk.embedding) == 2048
+
+
+@pytest.mark.integration
+async def test_empty_reembedding_does_not_hydrate_unrelated_chunk_columns(
+    test_session: AsyncSession,
+):
+    # Reproduce the production drift that exposed a missing generated FTS column.
+    # PostgreSQL DDL is transactional, so the fixture rollback restores it.
+    await test_session.execute(text("DROP INDEX IF EXISTS idx_chunks_content_tsv"))
+    await test_session.execute(text("ALTER TABLE chunks DROP COLUMN content_tsv"))
+
+    result = await reembed_missing_chunks(test_session, _FakeEmbedder(), batch_size=32)
+
+    assert result.processed == 0
+    assert result.remaining == 0

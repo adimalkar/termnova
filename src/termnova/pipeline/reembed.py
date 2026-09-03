@@ -5,7 +5,7 @@ import asyncio
 from dataclasses import dataclass
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from termnova.config import Settings, get_settings
@@ -51,19 +51,20 @@ async def reembed_missing_chunks(
         if max_chunks is not None:
             current_batch_size = min(batch_size, max_chunks - processed)
 
-        result = await session.scalars(
-            select(Chunk)
+        result = await session.execute(
+            select(Chunk.id, Chunk.content)
             .where(Chunk.embedding.is_(None))
             .order_by(Chunk.created_at, Chunk.id)
             .limit(current_batch_size)
+            .with_for_update(skip_locked=True)
         )
-        chunks = list(result.all())
+        chunks = [(chunk_id, content) for chunk_id, content in result.all()]
         if not chunks:
             break
 
         embeddings = await asyncio.to_thread(
             embedder.embed_texts,
-            [chunk.content for chunk in chunks],
+            [content for _, content in chunks],
             batch_size,
             input_type="passage",
             allow_deterministic_fallback=False,
@@ -73,8 +74,10 @@ async def reembed_missing_chunks(
                 f"Embedding provider returned {len(embeddings)} vectors for {len(chunks)} chunks"
             )
 
-        for chunk, embedding in zip(chunks, embeddings, strict=True):
-            chunk.embedding = embedding
+        for (chunk_id, _), embedding in zip(chunks, embeddings, strict=True):
+            await session.execute(
+                update(Chunk).where(Chunk.id == chunk_id).values(embedding=embedding)
+            )
 
         await session.commit()
         processed += len(chunks)
