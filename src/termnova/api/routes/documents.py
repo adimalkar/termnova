@@ -119,7 +119,7 @@ async def list_contracts(
     total = await repo.count_documents(status=status_filter)
 
     items: list[DocumentResponse] = []
-    for d in docs:
+    for d, chunk_count in docs:
         items.append(
             DocumentResponse(
                 id=d.id,
@@ -131,7 +131,7 @@ async def list_contracts(
                 processing_error=d.processing_error,
                 metadata_=d.metadata_ or {},
                 created_at=d.created_at,
-                chunk_count=len(d.chunks),
+                chunk_count=chunk_count,
             )
         )
 
@@ -151,6 +151,7 @@ async def get_contract_detail(
             detail=f"Document with ID {document_id} not found.",
         )
 
+    chunk_count = await repo.count_document_chunks(document_id)
     return DocumentResponse(
         id=d.id,
         filename=d.filename,
@@ -161,7 +162,7 @@ async def get_contract_detail(
         processing_error=d.processing_error,
         metadata_=d.metadata_ or {},
         created_at=d.created_at,
-        chunk_count=len(d.chunks),
+        chunk_count=chunk_count,
     )
 
 
