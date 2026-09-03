@@ -32,6 +32,18 @@ def test_production_rejects_wildcard_cors():
 
 
 @pytest.mark.unit
+def test_production_rejects_automatic_demo_seeding():
+    with pytest.raises(ValidationError, match="cannot be enabled in production"):
+        Settings(
+            APP_ENV="production",
+            REQUIRE_AUTH=True,
+            API_KEY="x" * 40,
+            CORS_ORIGINS=[],
+            AUTO_SEED_DEMO_CONTRACTS=True,
+        )
+
+
+@pytest.mark.unit
 def test_enabled_auth_requires_high_entropy_key():
     with pytest.raises(ValidationError, match="at least 32 characters"):
         Settings(APP_ENV="test", REQUIRE_AUTH=True, API_KEY="too-short")

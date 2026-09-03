@@ -11,6 +11,8 @@ services:
     envVars:
       - key: APP_ENV
         value: production
+      - key: AUTO_SEED_DEMO_CONTRACTS
+        value: "false"
       - key: LOG_LEVEL
         value: INFO
       - key: REQUIRE_AUTH

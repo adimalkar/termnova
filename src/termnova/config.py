@@ -188,6 +188,10 @@ class Settings(BaseSettings):
     APP_ENV: str = Field(
         default="development", description="Environment: development, test, production"
     )
+    AUTO_SEED_DEMO_CONTRACTS: bool = Field(
+        default=False,
+        description="Populate bundled sample contracts at startup in local demo environments",
+    )
     LOG_LEVEL: str = Field(default="INFO", description="Log level: DEBUG, INFO, WARNING, ERROR")
     UPLOAD_DIR: str = Field(
         default="data/uploads", description="Directory to store uploaded contract files"
@@ -209,6 +213,8 @@ class Settings(BaseSettings):
             raise ValueError("REQUIRE_AUTH must be enabled in production")
         if production and "*" in self.CORS_ORIGINS:
             raise ValueError("CORS_ORIGINS must use explicit trusted origins in production")
+        if production and self.AUTO_SEED_DEMO_CONTRACTS:
+            raise ValueError("AUTO_SEED_DEMO_CONTRACTS cannot be enabled in production")
 
         if self.REQUIRE_AUTH:
             value = self.API_KEY.get_secret_value() if self.API_KEY else ""

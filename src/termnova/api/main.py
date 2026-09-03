@@ -50,8 +50,9 @@ async def lifespan(app: FastAPI):
     # Initialize Database Connection Pool
     await init_db(settings)
 
-    # Automatically seed authentic commercial contracts if database has fewer than 10 contracts
-    if settings.APP_ENV != "test":
+    # Demo data is opt-in. Production ingestion belongs in a background worker,
+    # never in the memory-constrained web process during application startup.
+    if settings.AUTO_SEED_DEMO_CONTRACTS:
         try:
             from termnova.scripts.seed_real_contracts import seed_if_empty
 

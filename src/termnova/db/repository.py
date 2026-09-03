@@ -45,11 +45,7 @@ class ContractRepository:
 
     async def get_document(self, document_id: uuid.UUID) -> Document | None:
         """Fetch a document by primary key."""
-        stmt = (
-            select(Document)
-            .options(selectinload(Document.chunks))
-            .where(Document.id == document_id)
-        )
+        stmt = select(Document).where(Document.id == document_id)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -64,14 +60,25 @@ class ContractRepository:
         status: str | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[Document]:
-        """List documents with optional status filter and pagination."""
-        stmt = select(Document).options(selectinload(Document.chunks))
+    ) -> list[tuple[Document, int]]:
+        """List document metadata and chunk counts without loading chunk payloads."""
+        stmt = (
+            select(Document, func.count(Chunk.id).label("chunk_count"))
+            .outerjoin(Chunk, Chunk.document_id == Document.id)
+            .group_by(Document.id)
+        )
         if status:
             stmt = stmt.where(Document.processing_status == status)
         stmt = stmt.order_by(desc(Document.created_at)).limit(limit).offset(offset)
         result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        return [(document, int(chunk_count)) for document, chunk_count in result.all()]
+
+    async def count_document_chunks(self, document_id: uuid.UUID) -> int:
+        """Count chunks for one document without materializing their text or embeddings."""
+        result = await self.session.execute(
+            select(func.count(Chunk.id)).where(Chunk.document_id == document_id)
+        )
+        return int(result.scalar() or 0)
 
     async def count_documents(self, status: str | None = None) -> int:
         """Count total documents matching filter."""
