@@ -46,7 +46,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Newsreader:opsz,wght@16..72,400;16..72,600;16..72,700&family=Red+Hat+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/styles.css?v=0.4.2">
+  <link rel="stylesheet" href="/static/css/styles.css?v=0.4.3">
   <link rel="stylesheet" href="/static/css/graph.css?v=0.4.2">
   <link rel="stylesheet" href="/static/css/workspace.css?v=0.4.2">
   <link rel="stylesheet" href="/static/css/inbox.css?v=0.4.2">
@@ -166,6 +166,21 @@
 </head>
 <body class="desk-theme">
   <a class="skip-link" href="#main-desk">Skip to the desk</a>
+  <div class="auth-gate" id="auth-gate" role="dialog" aria-modal="true" aria-labelledby="auth-gate-title">
+    <form class="auth-card" id="auth-session-form">
+      <div class="auth-mark" aria-hidden="true">T</div>
+      <p class="auth-kicker">Protected contract desk</p>
+      <h1 id="auth-gate-title">Unlock Termnova</h1>
+      <p class="auth-copy">Enter the workspace access key. Termnova exchanges it for a secure browser session without writing it to page source, localStorage, or sessionStorage.</p>
+      <label class="auth-field" for="auth-access-key">
+        <span>Access key</span>
+        <input id="auth-access-key" name="api_key" type="password" autocomplete="current-password" required maxlength="4096" spellcheck="false">
+      </label>
+      <p class="auth-error" id="auth-session-error" role="alert" aria-live="polite"></p>
+      <button class="btn btn-primary auth-submit" id="auth-session-submit" type="submit">Unlock desk</button>
+      <p class="auth-note">The session expires automatically. Closing it never reveals or changes the production API key.</p>
+    </form>
+  </div>
   <!-- Mobile Backdrop Overlay for Off-Canvas Sidebar -->
   <div class="mobile-backdrop" id="mobile-sidebar-backdrop"></div>
 
@@ -292,6 +307,7 @@
           <span>Signing as</span>
           <input id="desk-actor-input" type="text" maxlength="100" autocomplete="name" aria-label="Your name on rooms and messages">
         </label>
+        <button type="button" class="desk-lock-button" id="btn-lock-desk">Lock desk</button>
         <div class="system-status-pill">
           <span class="status-indicator online" aria-hidden="true"></span>
           <span class="status-text" id="system-status-label">Checking the desk…</span>
@@ -1583,7 +1599,7 @@
 
   <!-- Scripts -->
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
-  <script src="/static/js/app.js?v=0.4.2"></script>
+  <script src="/static/js/app.js?v=0.4.3"></script>
   <script src="/static/js/chat.js?v=0.4.2"></script>
   <script src="/static/js/ws.js?v=0.4.2"></script>
   <script src="/static/js/workspace.js?v=0.4.2"></script>

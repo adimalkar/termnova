@@ -126,6 +126,9 @@ Railway automatically detects the [`railway.json`](../railway.json) and `Dockerf
 | `OPENCODE_BASE_URL` | string | `https://opencode.ai/zen/go/v1` | OpenCode Go OpenAI-compatible base URL |
 | `OPENROUTER_API_KEY`| string | - | Shared credential for OpenRouter fallback and embedding requests |
 | `OPENAI_API_KEY` | string | - | OpenAI API key (optional fallback) |
+| `REQUIRE_AUTH` | bool | `false` | Require the API key or a signed browser session; must be `true` in production |
+| `API_KEY` | secret | - | At least 32 characters; API clients send it in `X-API-Key` and UI operators enter it on the unlock screen |
+| `BROWSER_SESSION_TTL_SECONDS` | int | `28800` | Lifetime of the signed HttpOnly browser session cookie (5 minutes to 24 hours) |
 | `AWS_REGION` | string | `us-east-1` | AWS region when using Bedrock |
 | `LLM_MODEL` | string | `deepseek-v4-flash` | Primary LLM model identifier |
 | `LLM_FALLBACK_PROVIDER` | string | `openrouter` | Provider used when the primary provider is unavailable |

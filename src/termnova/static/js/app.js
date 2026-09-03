@@ -72,6 +72,84 @@ function setDeskActor(name) {
   return clean;
 }
 
+function showAuthGate(message = '') {
+  const gate = document.getElementById('auth-gate');
+  const error = document.getElementById('auth-session-error');
+  if (error) error.textContent = message;
+  if (gate) gate.style.display = 'flex';
+  window.setTimeout(() => document.getElementById('auth-access-key')?.focus(), 0);
+}
+
+function hideAuthGate() {
+  const gate = document.getElementById('auth-gate');
+  const input = document.getElementById('auth-access-key');
+  if (input) input.value = '';
+  if (gate) gate.style.display = 'none';
+}
+
+function bindBrowserSessionControls() {
+  const form = document.getElementById('auth-session-form');
+  const input = document.getElementById('auth-access-key');
+  const submit = document.getElementById('auth-session-submit');
+  const lockButton = document.getElementById('btn-lock-desk');
+
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const accessKey = input?.value || '';
+    if (!accessKey) return;
+    if (submit) submit.disabled = true;
+    try {
+      const response = await fetch('/api/v1/auth/session', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: accessKey }),
+      });
+      if (!response.ok) {
+        showAuthGate(response.status === 429
+          ? 'Too many attempts. Wait a minute and try again.'
+          : 'That access key was not accepted.');
+        return;
+      }
+      hideAuthGate();
+      window.location.reload();
+    } catch (error) {
+      showAuthGate('The desk could not establish a secure session. Try again.');
+    } finally {
+      if (input) input.value = '';
+      if (submit) submit.disabled = false;
+    }
+  });
+
+  lockButton?.addEventListener('click', async () => {
+    try {
+      await fetch('/api/v1/auth/session', {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+    } finally {
+      showAuthGate('The desk is locked.');
+    }
+  });
+}
+
+async function ensureBrowserSession() {
+  try {
+    const response = await fetch('/api/v1/auth/session', {
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    if (response.ok) {
+      hideAuthGate();
+      return true;
+    }
+  } catch (error) {
+    /* The gate below provides the user-facing recovery path. */
+  }
+  showAuthGate('Enter the workspace access key to continue.');
+  return false;
+}
+
 async function apiRequest(endpoint, options = {}) {
   const defaultHeaders = {
     'Content-Type': 'application/json',
@@ -83,6 +161,7 @@ async function apiRequest(endpoint, options = {}) {
   }
 
   const config = {
+    credentials: 'same-origin',
     ...options,
     headers: {
       ...defaultHeaders,
@@ -93,6 +172,9 @@ async function apiRequest(endpoint, options = {}) {
   try {
     const res = await fetch(endpoint, config);
     if (!res.ok) {
+      if (res.status === 401) {
+        showAuthGate('Your session expired. Enter the workspace access key again.');
+      }
       const errJson = await res.json().catch(() => ({}));
       const detail = errJson.detail;
       const message = typeof detail === 'string'
@@ -428,7 +510,10 @@ async function updateVaultStats() {
 }
 
 // ──── Initialization ────
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  bindBrowserSessionControls();
+  if (!(await ensureBrowserSession())) return;
+
   // Nav clicks
   document.querySelectorAll('.nav-item').forEach((btn) => {
     btn.addEventListener('click', (event) => {
