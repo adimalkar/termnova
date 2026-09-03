@@ -2,14 +2,8 @@
 -- Termnova — Database Schema Initialization
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
--- Attempt to enable extensions
-DO $$
-BEGIN
-    CREATE EXTENSION IF NOT EXISTS vector;
-EXCEPTION WHEN OTHERS THEN
-    RAISE NOTICE 'pgvector extension not installed in this PostgreSQL instance, using array/fallback column';
-END
-$$;
+-- pgvector is required for database-native semantic retrieval.
+CREATE EXTENSION IF NOT EXISTS vector;
 
 DO $$
 BEGIN
@@ -46,7 +40,8 @@ CREATE TABLE IF NOT EXISTS chunks (
     char_offset_start INTEGER,
     char_offset_end INTEGER,
     token_count INTEGER,
-    embedding FLOAT8[],
+    embedding halfvec(2048),
+    content_tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('english'::regconfig, content)) STORED,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(document_id, chunk_index)
 );
@@ -85,5 +80,8 @@ CREATE TABLE IF NOT EXISTS query_log (
 -- Analytics & search indexes
 CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(processing_status);
 CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks(document_id);
+CREATE INDEX IF NOT EXISTS idx_chunks_content_tsv ON chunks USING gin(content_tsv);
+CREATE INDEX IF NOT EXISTS ix_chunks_embedding_hnsw
+    ON chunks USING hnsw (embedding halfvec_cosine_ops);
 CREATE INDEX IF NOT EXISTS idx_query_log_created ON query_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_query_log_conversation ON query_log(conversation_id);

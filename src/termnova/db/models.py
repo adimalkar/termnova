@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pgvector.sqlalchemy import Vector
+from pgvector.sqlalchemy import HALFVEC
 from sqlalchemy import (
     ARRAY,
     BigInteger,
@@ -121,7 +121,7 @@ class Chunk(Base):
             "ix_chunks_embedding_hnsw",
             "embedding",
             postgresql_using="hnsw",
-            postgresql_ops={"embedding": "vector_cosine_ops"},
+            postgresql_ops={"embedding": "halfvec_cosine_ops"},
         ),
     )
 
@@ -149,7 +149,7 @@ class Chunk(Base):
     char_offset_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(
-        Vector(1536),
+        HALFVEC(2048),
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(

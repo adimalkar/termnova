@@ -57,16 +57,27 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-termnova}:${DB_PASSWORD:-termnova_dev}@postgres:5432/${DB_NAME:-termnova}
       REDIS_URL: redis://redis:6379/0
-      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_PROVIDER: ${LLM_PROVIDER:-opencode}
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY}
+      OPENCODE_BASE_URL: ${OPENCODE_BASE_URL:-https://opencode.ai/zen/go/v1}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_REGION: ${AWS_REGION:-us-east-1}
-      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
-      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1536}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-v4-flash}
+      LLM_FALLBACK_PROVIDER: ${LLM_FALLBACK_PROVIDER:-openrouter}
+      LLM_FALLBACK_MODEL: ${LLM_FALLBACK_MODEL:-deepseek/deepseek-v4-flash}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openrouter}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nvidia/nemotron-3-embed-1b:free}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-2048}
       APP_ENV: production
       LOG_LEVEL: INFO
+      REQUIRE_AUTH: ${REQUIRE_AUTH:-true}
+      API_KEY: ${API_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS:-[]}
+      EXPOSE_METRICS: ${EXPOSE_METRICS:-false}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     ports:
       - "8000:8000"
@@ -91,7 +102,21 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-termnova}:${DB_PASSWORD:-termnova_dev}@postgres:5432/${DB_NAME:-termnova}
       REDIS_URL: redis://redis:6379/0
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      APP_ENV: production
+      LLM_PROVIDER: ${LLM_PROVIDER:-opencode}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-v4-flash}
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY}
+      OPENCODE_BASE_URL: ${OPENCODE_BASE_URL:-https://opencode.ai/zen/go/v1}
+      LLM_FALLBACK_PROVIDER: ${LLM_FALLBACK_PROVIDER:-openrouter}
+      LLM_FALLBACK_MODEL: ${LLM_FALLBACK_MODEL:-deepseek/deepseek-v4-flash}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openrouter}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nvidia/nemotron-3-embed-1b:free}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-2048}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      REQUIRE_AUTH: ${REQUIRE_AUTH:-true}
+      API_KEY: ${API_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS:-[]}
     volumes:
       - ./data:/app/data
     networks:

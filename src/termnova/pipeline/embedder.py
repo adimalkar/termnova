@@ -12,6 +12,10 @@ from termnova.config import Settings, get_settings
 logger = structlog.get_logger(__name__)
 
 
+class EmbeddingProviderError(RuntimeError):
+    """Raised when a real embedding provider is required but cannot serve a request."""
+
+
 class EmbeddingService:
     """Provides vector embeddings across OpenAI, AWS Bedrock, Ollama, and local fallback."""
 
@@ -52,7 +56,9 @@ class EmbeddingService:
         retry=retry_if_exception_type(Exception),
         reraise=False,
     )
-    def _call_embedding_provider(self, texts: list[str]) -> list[list[float]] | None:
+    def _call_embedding_provider(
+        self, texts: list[str], input_type: str = "passage"
+    ) -> list[list[float]] | None:
         """Execute an embedding request against the explicitly selected provider."""
         model_name = self.model
         kwargs: dict[str, Any] = {
@@ -67,14 +73,18 @@ class EmbeddingService:
             import httpx
 
             model_name = self.model.removeprefix("openrouter/")
+            request_body: dict[str, Any] = {
+                "model": model_name,
+                "input": texts,
+                "dimensions": self.dimension,
+            }
+            if model_name == "nvidia/nemotron-3-embed-1b:free":
+                request_body["input_type"] = input_type
+
             response = httpx.post(
                 f"{self.settings.OPENROUTER_BASE_URL.rstrip('/')}/embeddings",
                 headers={"Authorization": f"Bearer {self.settings.OPENROUTER_API_KEY}"},
-                json={
-                    "model": model_name,
-                    "input": texts,
-                    "dimensions": self.dimension,
-                },
+                json=request_body,
                 timeout=self.settings.LLM_TIMEOUT_SECONDS,
             )
             response.raise_for_status()
@@ -83,6 +93,10 @@ class EmbeddingService:
                 item["embedding"]
                 for item in sorted(payload["data"], key=lambda item: item.get("index", 0))
             ]
+            if len(embeddings) != len(texts):
+                raise ValueError(
+                    f"Embedding count mismatch: expected {len(texts)}, received {len(embeddings)}"
+                )
             return self._validate_dimensions(embeddings)
         elif self.provider == "bedrock":
             model_name = f"bedrock/{self.model}"
@@ -119,11 +133,23 @@ class EmbeddingService:
             "mock": False,
         }.get(self.provider, False)
 
-    def embed_texts(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
-        """Embed a batch of text chunks with automated batching and resilient fallback."""
+    def embed_texts(
+        self,
+        texts: list[str],
+        batch_size: int = 32,
+        *,
+        input_type: str = "passage",
+        allow_deterministic_fallback: bool | None = None,
+    ) -> list[list[float]]:
+        """Embed text in batches, failing closed in production when the provider is unavailable."""
         if not texts:
             return []
 
+        fallback_allowed = (
+            self.settings.APP_ENV.strip().casefold() != "production"
+            if allow_deterministic_fallback is None
+            else allow_deterministic_fallback
+        )
         all_embeddings: list[list[float]] = []
 
         for i in range(0, len(texts), batch_size):
@@ -132,16 +158,21 @@ class EmbeddingService:
 
             if self._provider_is_available():
                 try:
-                    batch_embeddings = self._call_embedding_provider(batch)
+                    batch_embeddings = self._call_embedding_provider(batch, input_type=input_type)
                 except Exception as e:
-                    logger.warning(
-                        "Embedding provider call failed, falling back to deterministic",
-                        error=str(e),
-                    )
+                    if not fallback_allowed:
+                        raise EmbeddingProviderError(
+                            "Embedding provider failed; deterministic fallback is disabled"
+                        ) from e
+                    logger.warning("Embedding provider failed; using development fallback")
                     batch_embeddings = None
+            elif not fallback_allowed:
+                raise EmbeddingProviderError(
+                    f"Embedding provider '{self.provider}' is not configured"
+                )
 
             if batch_embeddings is None:
-                # Fallback to local deterministic generator
+                # This path is intentionally limited to tests and non-production development.
                 batch_embeddings = [self._generate_deterministic_embedding(t) for t in batch]
 
             all_embeddings.extend(batch_embeddings)
@@ -150,5 +181,5 @@ class EmbeddingService:
 
     def embed_query(self, query: str) -> list[float]:
         """Generate embedding vector for a search query string."""
-        results = self.embed_texts([query])
+        results = self.embed_texts([query], input_type="query")
         return results[0] if results else self._generate_deterministic_embedding(query)

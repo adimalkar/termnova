@@ -18,8 +18,8 @@ Returns the operational readiness of the application, database, cache, and activ
   "version": "0.1.0",
   "database": "healthy",
   "redis": "healthy",
-  "llm_provider": "openai",
-  "embedding_model": "text-embedding-3-small",
+  "llm_provider": "opencode",
+  "embedding_model": "nvidia/nemotron-3-embed-1b:free",
   "timestamp": "2026-08-15T06:45:00.000Z"
 }
 ```

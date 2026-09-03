@@ -20,8 +20,8 @@ async def test_pgvector_and_full_text_search_rank_matching_chunk(
     test_session.add(document)
     await test_session.flush()
 
-    uptime_vector = [1.0, *([0.0] * 1535)]
-    payment_vector = [0.0, 1.0, *([0.0] * 1534)]
+    uptime_vector = [1.0, *([0.0] * 2047)]
+    payment_vector = [0.0, 1.0, *([0.0] * 2046)]
     uptime_chunk = Chunk(
         document_id=document.id,
         chunk_index=0,

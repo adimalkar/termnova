@@ -121,13 +121,18 @@ Railway automatically detects the [`railway.json`](../railway.json) and `Dockerf
 |---|---|---|---|
 | `DATABASE_URL` | string | `postgresql+asyncpg://...` | Async SQLAlchemy PostgreSQL connection string |
 | `REDIS_URL` | string | `redis://localhost:6379/0` | Redis caching connection string |
-| `LLM_PROVIDER` | string | `openrouter` | Model provider backend (`openrouter`, `openai`, `bedrock`, `ollama`, `mock`) |
-| `OPENROUTER_API_KEY`| string | - | OpenRouter API key (supports free & ultra-low cost models) |
+| `LLM_PROVIDER` | string | `opencode` | Primary provider backend (`opencode`, `openrouter`, `openai`, `bedrock`, `ollama`, `mock`) |
+| `OPENCODE_API_KEY` | string | - | OpenCode provider credential |
+| `OPENCODE_BASE_URL` | string | `https://opencode.ai/zen/go/v1` | OpenCode Go OpenAI-compatible base URL |
+| `OPENROUTER_API_KEY`| string | - | Shared credential for OpenRouter fallback and embedding requests |
 | `OPENAI_API_KEY` | string | - | OpenAI API key (optional fallback) |
 | `AWS_REGION` | string | `us-east-1` | AWS region when using Bedrock |
-| `LLM_MODEL` | string | `google/gemini-2.0-flash-001` | Main LLM model (e.g. `google/gemini-2.0-flash-001`, `meta-llama/llama-3.3-70b-instruct:free`) |
-| `EMBEDDING_MODEL` | string | `text-embedding-3-small` | Embedding model identifier |
-| `EMBEDDING_DIMENSION` | int | `1536` | Dimensionality of embedding vector |
+| `LLM_MODEL` | string | `deepseek-v4-flash` | Primary LLM model identifier |
+| `LLM_FALLBACK_PROVIDER` | string | `openrouter` | Provider used when the primary provider is unavailable |
+| `LLM_FALLBACK_MODEL` | string | `deepseek/deepseek-v4-flash` | Fallback model identifier |
+| `EMBEDDING_PROVIDER` | string | `openrouter` | Provider used for document and query embeddings |
+| `EMBEDDING_MODEL` | string | `nvidia/nemotron-3-embed-1b:free` | Native 2048-dimensional embedding model |
+| `EMBEDDING_DIMENSION` | int | `2048` | Dimensionality of the pgvector column and provider response |
 | `CHUNK_SIZE` | int | `512` | Token chunk target size |
 | `CHUNK_OVERLAP` | int | `64` | Token chunk overlap |
 | `TOP_K_RETRIEVAL` | int | `10` | Number of candidate chunks retrieved |

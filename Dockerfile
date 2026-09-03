@@ -33,6 +33,8 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application source & configurations
 COPY src/ /app/src/
+COPY alembic/ /app/alembic/
+COPY alembic.ini /app/alembic.ini
 COPY db/ /app/db/
 COPY data/ /app/data/
 COPY pyproject.toml README.md /app/
