@@ -43,3 +43,25 @@ python -m termnova.pipeline.reembed --batch-size 32 --max-chunks 1600
 Downgrading the Alembic revision returns the column to 1536 dimensions, but it
 also invalidates 2048-dimensional vectors. A rollback therefore requires
 regenerating embeddings with the former 1536-dimensional model.
+
+## Render schema troubleshooting
+
+For a service that was created manually rather than from the repository
+Blueprint, also set **Settings -> Build & Deploy -> Pre-Deploy Command** to:
+
+```bash
+alembic upgrade head
+```
+
+If a deployed database reports that `chunks.content_tsv` is missing, deploy the
+schema-reconciliation revision and confirm the migration from a Render shell:
+
+```bash
+alembic current
+alembic upgrade head
+alembic current
+```
+
+The reconciliation is idempotent: it restores the generated full-text column,
+its GIN index, and the 2048-dimensional embedding column/index only when they
+are missing or incompatible.
