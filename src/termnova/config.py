@@ -46,8 +46,8 @@ class Settings(BaseSettings):
     )
     OPENCODE_API_KEY: str | None = Field(default=None, description="OpenCode Zen API key")
     OPENCODE_BASE_URL: str = Field(
-        default="https://opencode.ai/zen/v1",
-        description="OpenCode Zen OpenAI-compatible API base URL",
+        default="https://opencode.ai/zen/go/v1",
+        description="OpenCode Go OpenAI-compatible API base URL",
     )
     OPENAI_API_KEY: str | None = Field(default=None, description="OpenAI API key")
     OPENROUTER_API_KEY: str | None = Field(default=None, description="OpenRouter API key")
@@ -92,11 +92,12 @@ class Settings(BaseSettings):
         description="Embedding provider, configured independently from the chat model",
     )
     EMBEDDING_MODEL: str = Field(
-        default="openai/text-embedding-3-small",
+        default="nvidia/nemotron-3-embed-1b:free",
         description="Embedding model identifier",
     )
     EMBEDDING_DIMENSION: int = Field(
-        default=1536,
+        default=2048,
+        gt=0,
         description="Embedding vector dimensionality",
     )
 
@@ -207,6 +208,10 @@ class Settings(BaseSettings):
             value = self.API_KEY.get_secret_value() if self.API_KEY else ""
             if len(value) < 32:
                 raise ValueError("API_KEY must contain at least 32 characters when auth is enabled")
+
+        model = self.EMBEDDING_MODEL.removeprefix("openrouter/")
+        if model == "nvidia/nemotron-3-embed-1b:free" and self.EMBEDDING_DIMENSION != 2048:
+            raise ValueError("nvidia/nemotron-3-embed-1b:free requires EMBEDDING_DIMENSION=2048")
 
         return self
 
