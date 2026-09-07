@@ -91,7 +91,7 @@ services:
   celery-worker:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.worker
     container_name: termnova-celery-worker
     command: celery -A termnova.pipeline.celery_app worker -l info -Q ingestion -c 2
     depends_on:

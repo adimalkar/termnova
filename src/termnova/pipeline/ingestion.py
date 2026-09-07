@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +41,12 @@ class IngestionPipeline:
         )
         self.embedder = embedder or EmbeddingService(self.settings)
 
-    async def ingest_file(self, file_path: Path | str, force_reindex: bool = False) -> Document:
+    async def ingest_file(
+        self,
+        file_path: Path | str,
+        force_reindex: bool = False,
+        document_id: uuid.UUID | None = None,
+    ) -> Document:
         """Process and ingest a single contract document."""
         path = Path(file_path)
         if not path.exists():
@@ -51,25 +57,34 @@ class IngestionPipeline:
 
         # Check for existing document by content hash
         existing = await self.repository.get_document_by_hash(file_hash)
-        if existing and not force_reindex:
+        if existing and existing.id != document_id and not force_reindex:
             logger.info(
                 "Document already ingested, skipping", filename=path.name, id=str(existing.id)
             )
             return existing
 
-        if existing and force_reindex:
+        if existing and existing.id != document_id and force_reindex:
             logger.info(
                 "Force re-indexing existing document", filename=path.name, id=str(existing.id)
             )
             await self.repository.delete_document(existing.id)
 
-        # Create pending document record
-        doc = await self.repository.create_document(
-            filename=path.name,
-            file_type=path.suffix.lstrip(".").lower(),
-            file_size_bytes=file_size,
-            file_hash=file_hash,
-        )
+        doc = await self.repository.get_document(document_id) if document_id else None
+        if doc is None:
+            doc = await self.repository.create_document(
+                filename=path.name,
+                file_type=path.suffix.lstrip(".").lower(),
+                file_size_bytes=file_size,
+                file_hash=file_hash,
+            )
+        else:
+            if doc.processing_status == "completed":
+                logger.info("Ingestion task already completed", document_id=str(doc.id))
+                return doc
+            doc.file_size_bytes = file_size
+            doc.file_hash = file_hash
+            doc.processing_status = "processing"
+            doc.processing_error = None
         await self.session.flush()
 
         try:
@@ -166,13 +181,15 @@ class IngestionPipeline:
 
         except Exception as exc:
             logger.error("Ingestion failed for document", filename=path.name, error=str(exc))
-            await self.repository.update_document_status(
-                document_id=doc.id,
-                status="failed",
-                error_message=str(exc),
-            )
-            await self.session.flush()
-            raise exc
+            await self.session.rollback()
+            if document_id is not None:
+                await self.repository.update_document_status(
+                    document_id=document_id,
+                    status="failed",
+                    error_message=str(exc),
+                )
+                await self.session.flush()
+            raise
 
     async def ingest_directory(
         self, dir_path: Path | str, force_reindex: bool = False

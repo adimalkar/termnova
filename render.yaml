@@ -4,6 +4,7 @@ services:
     name: termnova-api
     runtime: docker
     dockerfilePath: ./Dockerfile
+    dockerContext: .
     plan: starter
     region: oregon
     healthCheckPath: /health
@@ -51,6 +52,85 @@ services:
         sync: false
       - key: OPENROUTER_BASE_URL
         value: https://openrouter.ai/api/v1
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: USE_LLM_GRADER
+        value: "false"
+      - key: USE_LLM_REWRITE
+        value: "false"
+      - key: USE_RERANKER
+        value: "false"
+      - key: STORAGE_BACKEND
+        value: s3
+      - key: STORAGE_BUCKET
+        sync: false
+      - key: STORAGE_ENDPOINT_URL
+        sync: false
+      - key: STORAGE_ACCESS_KEY_ID
+        sync: false
+      - key: STORAGE_SECRET_ACCESS_KEY
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: termnova-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: termnova-redis
+          property: connectionString
+
+  # ──── Celery Ingestion Worker ────
+  - type: worker
+    name: termnova-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile.worker
+    dockerContext: .
+    plan: starter
+    region: oregon
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: LLM_PROVIDER
+        value: opencode
+      - key: OPENCODE_API_KEY
+        sync: false
+      - key: OPENCODE_BASE_URL
+        value: https://opencode.ai/zen/go/v1
+      - key: LLM_MODEL
+        value: deepseek-v4-flash
+      - key: LLM_FALLBACK_PROVIDER
+        value: openrouter
+      - key: LLM_FALLBACK_MODEL
+        value: deepseek/deepseek-v4-flash
+      - key: LLM_TIMEOUT_SECONDS
+        value: "30"
+      - key: LLM_NUM_RETRIES
+        value: "2"
+      - key: EMBEDDING_PROVIDER
+        value: openrouter
+      - key: EMBEDDING_MODEL
+        value: nvidia/nemotron-3-embed-1b:free
+      - key: EMBEDDING_DIMENSION
+        value: "2048"
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: USE_RERANKER
+        value: "false"
+      - key: STORAGE_BACKEND
+        value: s3
+      - key: STORAGE_BUCKET
+        sync: false
+      - key: STORAGE_ENDPOINT_URL
+        sync: false
+      - key: STORAGE_ACCESS_KEY_ID
+        sync: false
+      - key: STORAGE_SECRET_ACCESS_KEY
+        sync: false
       - key: DATABASE_URL
         fromDatabase:
           name: termnova-postgres
