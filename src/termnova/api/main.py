@@ -12,6 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from termnova import __version__
+from termnova.api.dependencies import get_tenant_context
 from termnova.api.middleware import setup_middleware
 from termnova.api.routes import (
     analytics_router,
@@ -23,6 +24,7 @@ from termnova.api.routes import (
     inbox_router,
     intelligence_router,
     negotiations_router,
+    organizations_router,
     query_router,
     triage_rules_router,
     workspaces_router,
@@ -35,6 +37,7 @@ from termnova.observability.tracing import setup_tracing
 from termnova.rag.guardrails import GuardrailViolationError
 from termnova.security.auth import OIDCVerifier, get_current_principal, validate_auth_configuration
 from termnova.security.rate_limiter import custom_rate_limit_exceeded_handler, limiter
+from termnova.security.tenancy import require_permission
 
 logger = structlog.get_logger(__name__)
 
@@ -110,21 +113,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
 
-    protected_dependencies = [Depends(get_current_principal)]
-    for protected_router in (
-        desk_router,
-        query_router,
-        documents_router,
-        inbox_router,
-        triage_rules_router,
-        negotiations_router,
-        intelligence_router,
-        graph_router,
-        workspaces_router,
-        analytics_router,
-        compare_router,
-    ):
-        app.include_router(protected_router, dependencies=protected_dependencies)
+    protected_dependencies = [Depends(get_current_principal), Depends(get_tenant_context)]
+    protected_routers = (
+        (organizations_router, "audit:read"),
+        (desk_router, "document:read"),
+        (query_router, "query:run"),
+        (documents_router, "document:read"),
+        (inbox_router, "document:read"),
+        (triage_rules_router, "document:write"),
+        (negotiations_router, "document:write"),
+        (intelligence_router, "document:read"),
+        (graph_router, "document:read"),
+        (workspaces_router, "workspace:read"),
+        (analytics_router, "audit:read"),
+        (compare_router, "document:read"),
+    )
+    for protected_router, permission in protected_routers:
+        dependencies = list(protected_dependencies)
+        if permission:
+            dependencies.append(Depends(require_permission(permission)))
+        app.include_router(protected_router, dependencies=dependencies)
     app.include_router(ws_router)
 
     @app.exception_handler(GuardrailViolationError)

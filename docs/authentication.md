@@ -6,7 +6,7 @@ Termnova supports three request authentication modes while Phase 0 identity and 
 - `api_key`: an interim service-account mode. Identity, organization, and roles come from server configuration rather than client-supplied actor fields.
 - `oidc`: the recommended interactive/API production mode. Bearer JWTs are verified against an OpenID Provider's discovered or explicitly configured JWKS.
 
-This slice establishes trusted request context. It does **not** yet provide organization membership records, SCIM, permission policy, or PostgreSQL row-level security. OIDC authentication must not be described as complete tenant isolation until those later Phase 0 slices ship.
+Authentication establishes trusted request context. Organization memberships, role permissions, tenant-scoped sessions, and PostgreSQL row-level security are documented in [Tenancy and Authorization](tenancy-and-authorization.md). SCIM and SAML remain later identity-provider integrations.
 
 ## OIDC validation
 
@@ -58,7 +58,7 @@ All `/api/v1` business routers require the principal dependency when authenticat
 
 WebSocket endpoints authenticate before accepting a connection. Non-browser clients can send the Authorization header. Browser clients can use a secure, HTTP-only `termnova_access_token` cookie established by the future login/session endpoint. Bearer tokens are deliberately not accepted in query parameters because URLs are commonly logged.
 
-Authentication does not yet authorize a user for a particular workspace or document. Membership-backed authorization and tenant-scoped queries are the next Phase 0 implementation slice.
+Authentication is followed by active membership resolution and tenant-scoped database access. Workspace-level membership remains an additional collaboration boundary inside the organization.
 
 ## Interim service accounts
 
