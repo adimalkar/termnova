@@ -13,7 +13,11 @@ from termnova.rag.engine import RAGEngine
 from termnova.rag.guardrails import GuardrailChecker, GuardrailViolationError
 from termnova.security.auth import (
     BROWSER_SESSION_COOKIE,
+    AuthenticationFailedError,
+    IdentityProviderUnavailableError,
+    RequestPrincipal,
     authenticate_request,
+    authenticate_websocket,
     is_same_origin,
 )
 
@@ -21,35 +25,49 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["WebSocket"])
 
 
-async def _authenticate_websocket(websocket: WebSocket) -> bool:
-    """Authenticate API clients by header and browsers by signed same-origin cookie."""
+async def _authenticate_websocket(websocket: WebSocket) -> RequestPrincipal | None:
+    """Authenticate the socket and return its principal, or close and return None."""
     settings = getattr(websocket.app.state, "settings", get_settings())
-    try:
-        identity = authenticate_request(
-            websocket.headers.get("x-api-key"),
-            websocket.cookies.get(BROWSER_SESSION_COOKIE),
-            settings,
-        )
-    except HTTPException:
-        await websocket.close(code=4401, reason="Authentication required")
-        return False
 
-    production = settings.APP_ENV.strip().casefold() == "production"
-    if identity == "browser-session-authenticated" and not is_same_origin(
-        websocket.headers.get("origin"),
-        websocket.headers.get("host"),
-        production=production,
-    ):
-        await websocket.close(code=4403, reason="Same-origin request required")
-        return False
-    return True
+    # Bearer-only OIDC clients carry no API key or cookie, so the header/cookie
+    # boundary below applies to every other mode.
+    if settings.effective_auth_mode != "oidc":
+        try:
+            identity = authenticate_request(
+                websocket.headers.get("x-api-key"),
+                websocket.cookies.get(BROWSER_SESSION_COOKIE),
+                settings,
+            )
+        except HTTPException:
+            await websocket.close(code=4401, reason="Authentication required")
+            return None
+
+        production = settings.APP_ENV.strip().casefold() == "production"
+        if identity == "browser-session-authenticated" and not is_same_origin(
+            websocket.headers.get("origin"),
+            websocket.headers.get("host"),
+            production=production,
+        ):
+            await websocket.close(code=4403, reason="Same-origin request required")
+            return None
+
+    try:
+        return await authenticate_websocket(websocket, settings)
+    except AuthenticationFailedError:
+        await websocket.close(code=4401, reason="Authentication required")
+        return None
+    except IdentityProviderUnavailableError:
+        await websocket.close(code=1013, reason="Identity provider unavailable")
+        return None
 
 
 @router.websocket("/ws/query")
 async def websocket_query_endpoint(websocket: WebSocket):
     """Bidirectional streaming Q&A endpoint."""
-    if not await _authenticate_websocket(websocket):
+    principal = await _authenticate_websocket(websocket)
+    if principal is None:
         return
+    websocket.state.principal = principal
     settings = getattr(websocket.app.state, "settings", get_settings())
 
     client_id = f"client_{uuid.uuid4().hex[:8]}"
@@ -113,8 +131,10 @@ async def websocket_query_endpoint(websocket: WebSocket):
 @router.websocket("/ws/notifications")
 async def websocket_notifications_endpoint(websocket: WebSocket):
     """Push notifications and collaborative workspace channel."""
-    if not await _authenticate_websocket(websocket):
+    principal = await _authenticate_websocket(websocket)
+    if principal is None:
         return
+    websocket.state.principal = principal
 
     client_id = f"notif_{uuid.uuid4().hex[:8]}"
     await ws_manager.connect(websocket, client_id)
@@ -158,7 +178,11 @@ async def websocket_notifications_endpoint(websocket: WebSocket):
 
                 elif action == "typing":
                     ws_id = msg.get("workspace_id")
-                    user_name = msg.get("user_name", "Team Member")
+                    user_name = (
+                        principal.display_name
+                        if principal.is_authenticated
+                        else msg.get("user_name", principal.display_name)
+                    )
                     if ws_id:
                         await ws_manager.broadcast_to_channel(
                             str(ws_id),

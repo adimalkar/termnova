@@ -8,16 +8,31 @@ from pydantic import ValidationError
 from termnova.api.main import create_app
 from termnova.config import Settings
 from termnova.security.auth import (
+    BROWSER_SESSION_COOKIE,
     authenticate_api_key,
     authenticate_browser_session,
     create_browser_session,
+    is_valid_browser_session,
 )
 
 
 @pytest.mark.unit
 def test_production_requires_inference_authentication():
-    with pytest.raises(ValidationError, match="REQUIRE_AUTH must be enabled"):
+    with pytest.raises(ValidationError, match="Production requires AUTH_MODE"):
         Settings(APP_ENV="production", REQUIRE_AUTH=False, CORS_ORIGINS=[])
+
+
+@pytest.mark.unit
+def test_production_accepts_oidc_without_the_legacy_require_auth_flag():
+    settings = Settings(
+        APP_ENV="production",
+        AUTH_MODE="oidc",
+        REQUIRE_AUTH=False,
+        CORS_ORIGINS=[],
+        OIDC_ISSUER="https://issuer.example",
+        OIDC_AUDIENCE="termnova-api",
+    )
+    assert settings.effective_auth_mode == "oidc"
 
 
 @pytest.mark.unit
@@ -201,3 +216,62 @@ async def test_authenticated_prompt_injection_is_rejected_with_safe_error():
     body = response.json()
     assert body["error"] == "RequestRejected"
     assert "hidden prompt" not in body["detail"].casefold()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_browser_session_satisfies_the_request_principal_boundary():
+    """A cookie-authenticated browser must reach principal-gated routes.
+
+    The session exchange (PR 35) and the principal boundary (PR 20) were built
+    independently; without the browser-session bridge in authenticate_credentials
+    every cookie-authenticated request would 401 on protected routers.
+    """
+    secret = "browser-session-secret-0123456789abcdef"
+    settings = Settings(
+        APP_ENV="production",
+        REQUIRE_AUTH=True,
+        API_KEY=secret,
+        LLM_PROVIDER="mock",
+        CORS_ORIGINS=[],
+    )
+    assert settings.effective_auth_mode == "api_key"
+    app = create_app(settings)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as client:
+        unauthenticated = await client.get("/api/v1/auth/me")
+        assert unauthenticated.status_code == 401
+
+        # Minted directly rather than through POST /session, whose 5/minute limiter
+        # is process-wide and would make this test order-dependent.
+        client.cookies.set(BROWSER_SESSION_COOKIE, create_browser_session(settings))
+
+        introspection = await client.get("/api/v1/auth/me")
+        assert introspection.status_code == 200
+        body = introspection.json()
+        assert body["is_authenticated"] is True
+        assert body["auth_method"] == "browser_session"
+        assert body["organization_id"] == settings.API_KEY_ORGANIZATION_ID
+        assert secret not in introspection.text
+
+        # An explicit header wins over the stored cookie for the same identity.
+        header_client = await client.get("/api/v1/auth/me", headers={"X-API-Key": secret})
+        assert header_client.status_code == 200
+        assert header_client.json()["auth_method"] == "api_key"
+
+
+@pytest.mark.unit
+def test_forged_browser_session_is_rejected_without_require_auth_shortcut():
+    """Signature verification must not depend on the REQUIRE_AUTH short-circuit."""
+    settings = Settings(
+        AUTH_MODE="api_key",
+        REQUIRE_AUTH=False,
+        API_KEY="browser-session-secret-0123456789abcdef",
+        LLM_PROVIDER="mock",
+    )
+    valid = create_browser_session(settings)
+
+    assert is_valid_browser_session(valid, settings) is True
+    assert is_valid_browser_session("v1.99999999999.nonce.forged", settings) is False
+    assert is_valid_browser_session(None, settings) is False
+    assert is_valid_browser_session("not-a-token", settings) is False

@@ -121,6 +121,13 @@ Railway automatically detects the [`railway.json`](../railway.json) and `Dockerf
 |---|---|---|---|
 | `DATABASE_URL` | string | `postgresql+asyncpg://...` | Async SQLAlchemy PostgreSQL connection string |
 | `REDIS_URL` | string | `redis://localhost:6379/0` | Redis caching connection string |
+| `AUTH_MODE` | string | `disabled` | Request authentication mode (`disabled`, `api_key`, or recommended `oidc`) |
+| `OIDC_ISSUER` | URL | - | Exact HTTPS OpenID Connect issuer when OIDC is enabled |
+| `OIDC_AUDIENCE` | string | - | Required audience for Termnova bearer tokens |
+| `OIDC_JWKS_URL` | URL | discovery | Optional explicit HTTPS JWKS endpoint |
+| `OIDC_ORGANIZATION_CLAIM` | string | `org_id` | Required token claim carrying external organization identity |
+| `OIDC_ROLES_CLAIM` | string | `roles` | Token claim carrying roles for later membership-backed authorization |
+| `API_KEY` | secret | - | Interim service-account key used only in `api_key` mode; minimum 24 characters |
 | `LLM_PROVIDER` | string | `opencode` | Primary provider backend (`opencode`, `openrouter`, `openai`, `bedrock`, `ollama`, `mock`) |
 | `OPENCODE_API_KEY` | string | - | OpenCode provider credential |
 | `OPENCODE_BASE_URL` | string | `https://opencode.ai/zen/go/v1` | OpenCode Go OpenAI-compatible base URL |
