@@ -4,6 +4,10 @@
 > **Benchmark Suite:** 30 Curated Enterprise Contract Q&A Test Cases  
 > **Status:** ⚠️ **NEEDS IMPROVEMENT** (Overall Pass Rate: `73.3%`)
 
+> Historical benchmark note: these results were produced before the PostgreSQL full-text
+> retrieval migration. They are retained as a baseline, not as evidence of current accuracy or
+> a production guarantee. Re-run the benchmark before making release claims.
+
 ---
 
 ## 1. Executive Summary & Overall Scorecard
