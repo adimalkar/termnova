@@ -33,8 +33,9 @@ from termnova.api.schemas import (
     UploadResponse,
 )
 from termnova.config import Settings
-from termnova.db.models import DeletionRequest, StoredObject
+from termnova.db.models import BackgroundJob, DeletionRequest, StoredObject
 from termnova.db.repository import ContractRepository
+from termnova.operations.jobs import create_ingestion_job, mark_outbox_published
 from termnova.pipeline.celery_app import celery_app
 from termnova.security.intake import MalwareScanner, validate_content_type
 from termnova.security.tenancy import TenantContext, record_audit_event, require_permission
@@ -141,6 +142,13 @@ async def upload_contract(
             else "filesystem",
         )
         session.add(stored_object)
+        job = await create_ingestion_job(
+            session,
+            settings,
+            document_id=doc.id,
+            storage_key=object_key,
+            file_hash=file_hash,
+        )
         await record_audit_event(
             session,
             tenant,
@@ -155,15 +163,19 @@ async def upload_contract(
 
             task = await asyncio.to_thread(
                 ingest_document_task.apply,
-                args=[object_key, str(doc.id), str(doc.organization_id)],
+                args=[object_key, str(doc.id), str(doc.organization_id), str(job.id)],
+                task_id=job.task_id,
             )
             if task.failed():
                 raise RuntimeError(str(task.result))
         else:
             task = celery_app.send_task(
                 "termnova.pipeline.tasks.ingest_document_task",
-                args=[object_key, str(doc.id), str(doc.organization_id)],
+                args=[object_key, str(doc.id), str(doc.organization_id), str(job.id)],
+                task_id=job.task_id,
             )
+        await mark_outbox_published(session, job.id)
+        await session.commit()
     except HTTPException:
         await session.rollback()
         await storage.delete(quarantine_key)
@@ -184,7 +196,7 @@ async def upload_contract(
         filename=doc.filename,
         file_type=doc.file_type,
         status="pending",
-        task_id=task.id,
+        task_id=job.task_id,
         message="Contract stored and queued for background parsing and indexing.",
     )
 
@@ -225,8 +237,20 @@ async def download_original(
 
 
 @router.get("/tasks/{task_id}", response_model=TaskStatusResponse)
-async def get_ingestion_task(task_id: str) -> TaskStatusResponse:
-    """Return Celery task progress/result for upload polling."""
+async def get_ingestion_task(
+    task_id: str, session: AsyncSession = Depends(get_db_session)
+) -> TaskStatusResponse:
+    """Return durable job state, falling back to the broker result when necessary."""
+    durable = (
+        await session.execute(select(BackgroundJob).where(BackgroundJob.task_id == task_id))
+    ).scalar_one_or_none()
+    if durable:
+        return TaskStatusResponse(
+            task_id=task_id,
+            status=durable.status,
+            result=durable.payload if durable.status == "completed" else None,
+            error=durable.last_error,
+        )
     from celery.result import AsyncResult
 
     result = AsyncResult(task_id, app=celery_app)

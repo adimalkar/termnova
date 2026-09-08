@@ -8,6 +8,7 @@ import structlog
 
 from termnova.config import get_settings
 from termnova.db.connection import create_async_engine
+from termnova.operations.jobs import mark_job_completed, mark_job_failed, mark_job_started
 from termnova.pipeline.celery_app import celery_app
 from termnova.pipeline.embedder import EmbeddingService
 from termnova.pipeline.ingestion import IngestionPipeline
@@ -19,7 +20,11 @@ logger = structlog.get_logger(__name__)
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=5)
 def ingest_document_task(
-    self, storage_key: str, document_id_str: str, organization_id_str: str
+    self,
+    storage_key: str,
+    document_id_str: str,
+    organization_id_str: str,
+    job_id_str: str,
 ) -> dict:
     """Background task processing and vectorizing an uploaded contract."""
     settings = get_settings()
@@ -39,12 +44,18 @@ def ingest_document_task(
                 uuid.UUID(organization_id_str),
                 actor_subject="celery:ingest_document",
             )
+            job_id = uuid.UUID(job_id_str)
+            job = await mark_job_started(session, job_id)
+            if job.status == "completed":
+                return {"document_id": document_id_str, "status": "completed", "idempotent": True}
+            await session.commit()
             embedder = EmbeddingService(settings)
             pipeline = IngestionPipeline(session, embedder, settings)
             document_id = uuid.UUID(document_id_str)
             try:
                 logger.info("Celery worker starting document ingestion", key=storage_key)
                 doc = await pipeline.ingest_file(file_path, document_id=document_id)
+                await mark_job_completed(session, job_id)
                 await session.commit()
                 try:
                     import redis.asyncio as aioredis
@@ -62,6 +73,17 @@ def ingest_document_task(
                 }
             except Exception as exc:
                 await session.rollback()
+                await apply_organization_context(
+                    session,
+                    uuid.UUID(organization_id_str),
+                    actor_subject="celery:ingest_document",
+                )
+                await mark_job_failed(
+                    session,
+                    job_id,
+                    exc,
+                    final=self.request.retries >= self.max_retries,
+                )
                 from termnova.db.repository import ContractRepository
 
                 await ContractRepository(session).update_document_status(
@@ -95,7 +117,7 @@ def ingest_directory_task(directory_path_str: str) -> dict:
 
     settings = get_settings()
 
-    async def _prepare() -> list[tuple[Path, str, str, str]]:
+    async def _prepare() -> list[tuple[Path, str, str, str, str, str]]:
         from sqlalchemy.ext.asyncio import async_sessionmaker
 
         from termnova.db.repository import ContractRepository
@@ -103,7 +125,7 @@ def ingest_directory_task(directory_path_str: str) -> dict:
         engine = create_async_engine(settings)
         session_maker = async_sessionmaker(engine, expire_on_commit=False)
         storage = DocumentStorage(settings)
-        prepared: list[tuple[Path, str, str, str]] = []
+        prepared: list[tuple[Path, str, str, str, str, str]] = []
         async with session_maker() as session:
             from sqlalchemy import select
 
@@ -126,14 +148,27 @@ def ingest_directory_task(directory_path_str: str) -> dict:
                     file_size_bytes=file.stat().st_size,
                     metadata={"storage_key": key},
                 )
-                prepared.append((file, key, str(doc.id), str(doc.organization_id)))
+                from termnova.operations.jobs import create_ingestion_job
+
+                job = await create_ingestion_job(
+                    session,
+                    settings,
+                    document_id=doc.id,
+                    storage_key=key,
+                    file_hash=f"batch:{file.stat().st_mtime_ns}:{file.stat().st_size}",
+                )
+                prepared.append(
+                    (file, key, str(doc.id), str(doc.organization_id), str(job.id), job.task_id)
+                )
             await session.commit()
         await engine.dispose()
         return prepared
 
     dispatched = []
-    for file, key, document_id, organization_id in asyncio.run(_prepare()):
-        task = ingest_document_task.delay(key, document_id, organization_id)
+    for file, key, document_id, organization_id, job_id, task_id in asyncio.run(_prepare()):
+        task = ingest_document_task.apply_async(
+            args=[key, document_id, organization_id, job_id], task_id=task_id
+        )
         dispatched.append({"file": file.name, "document_id": document_id, "task_id": task.id})
 
     return {
