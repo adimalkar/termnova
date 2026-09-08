@@ -645,6 +645,71 @@ class ConnectorEvent(TenantOwned, Base):
     )
 
 
+class ConnectorSourceItem(TenantOwned, Base):
+    """Stable provider object identity across moves, renames, and content revisions."""
+
+    __tablename__ = "connector_source_items"
+    __table_args__ = (
+        UniqueConstraint("connection_id", "external_item_id", name="uq_connector_source_item"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("connector_connections.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    external_item_id: Mapped[str] = mapped_column(String(1000), nullable=False)
+    logical_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("logical_documents.id", ondelete="SET NULL"), nullable=True
+    )
+    latest_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_versions.id", ondelete="SET NULL"), nullable=True
+    )
+    name: Mapped[str] = mapped_column(String(1000), nullable=False)
+    mime_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    source_revision: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    container_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    web_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    permissions_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="discovered")
+    source_modified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class ConnectorSyncRun(TenantOwned, Base):
+    """Reconstructable incremental or full connector reconciliation attempt."""
+
+    __tablename__ = "connector_sync_runs"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("connector_connections.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    cursor_before: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cursor_after: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
+    counts: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class ServiceAccount(TenantOwned, Base):
     """Individually revocable machine identity storing only a secret hash."""
 
