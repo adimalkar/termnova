@@ -657,6 +657,68 @@ class ObligationEvent(TenantOwned, Base):
     )
 
 
+class ObligationEvidence(TenantOwned, Base):
+    """Governed fulfillment evidence with an explicit acceptance decision."""
+
+    __tablename__ = "obligation_evidence"
+    __table_args__ = (
+        UniqueConstraint("obligation_id", "sha256", name="uq_obligation_evidence_hash"),
+        CheckConstraint(
+            "status IN ('pending', 'accepted', 'rejected')",
+            name="ck_obligation_evidence_status",
+        ),
+        Index(
+            "ix_obligation_evidence_obligation_status",
+            "obligation_id",
+            "status",
+            "submitted_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    obligation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("obligations.id", ondelete="RESTRICT"), nullable=False
+    )
+    stored_object_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("stored_objects.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    evidence_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    filename: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    submitted_by_membership_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organization_memberships.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    submitted_by_subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    reviewed_by_membership_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organization_memberships.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    reviewed_by_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, default=dict, server_default="{}", nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class ClauseTranslation(TenantOwned, Base):
     """Optional translated view that never replaces authoritative source text."""
 

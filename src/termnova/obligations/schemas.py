@@ -56,6 +56,11 @@ class ObligationTransitionRequest(ObligationRevisionRequest):
     reason: str | None = Field(default=None, max_length=2000)
 
 
+class ObligationEvidenceDecisionRequest(ObligationRevisionRequest):
+    decision: Literal["accept", "reject"]
+    note: str | None = Field(default=None, max_length=2000)
+
+
 class ObligationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -108,3 +113,32 @@ class ObligationEventResponse(BaseModel):
     to_status: str | None
     details: dict[str, Any]
     occurred_at: datetime
+
+
+class ObligationEvidenceResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    obligation_id: uuid.UUID
+    stored_object_id: uuid.UUID
+    evidence_type: str
+    filename: str
+    description: str | None
+    sha256: str
+    mime_type: str
+    size_bytes: int
+    status: Literal["pending", "accepted", "rejected"]
+    submitted_by_membership_id: uuid.UUID
+    submitted_by_subject: str
+    submitted_at: datetime
+    reviewed_by_membership_id: uuid.UUID | None
+    reviewed_by_subject: str | None
+    reviewed_at: datetime | None
+    review_note: str | None
+    metadata: dict[str, Any] = Field(validation_alias="metadata_")
+    created_at: datetime
+
+
+class ObligationEvidenceSubmissionResponse(BaseModel):
+    evidence: ObligationEvidenceResponse
+    obligation_revision: int

@@ -15,6 +15,7 @@ from termnova.db.models import (
     DocumentVersion,
     LogicalDocument,
     ObligationEvent,
+    ObligationEvidence,
     Organization,
     OrganizationMembership,
 )
@@ -26,6 +27,7 @@ from termnova.obligations import (
     StaleObligationRevisionError,
 )
 from termnova.operations.jobs import get_or_create_snapshot
+from termnova.storage import DocumentStorage
 
 
 async def _verified_payment_fact(test_session, test_settings) -> ContractFact:
@@ -366,3 +368,240 @@ async def test_obligation_api_returns_original_clause_evidence(
         "acknowledged",
         "status_changed",
     ]
+
+
+async def test_required_evidence_needs_independent_acceptance_before_completion(
+    test_session, test_settings
+):
+    fact = await _verified_payment_fact(test_session, test_settings)
+    owner = await _member(test_session, "evidence-owner@example.com")
+    reviewer = await _member(test_session, "reviewer@example.com", "legal-reviewer")
+    service = ObligationService(test_session, test_session.info["organization_id"])
+    obligation, _ = await service.create_from_fact(
+        fact.id,
+        actor_subject="legal@example.com",
+        owner_membership_id=owner.id,
+        evidence_requirements={
+            "required_types": ["invoice"],
+            "minimum_accepted": 1,
+            "high_value_threshold": "10000",
+        },
+    )
+
+    with pytest.raises(ValueError, match="missing required types: invoice"):
+        await service.transition(
+            obligation.id,
+            to_status="completed",
+            expected_revision=1,
+            actor_membership_id=owner.id,
+            actor_subject=owner.subject,
+            may_manage=False,
+        )
+
+    evidence, obligation, created = await service.submit_evidence(
+        obligation.id,
+        expected_revision=1,
+        actor_membership_id=owner.id,
+        actor_subject=owner.subject,
+        may_manage=False,
+        evidence_type="invoice",
+        filename="invoice.txt",
+        description="Paid invoice confirmation",
+        sha256="a" * 64,
+        mime_type="text/plain",
+        content_size=24,
+        object_key="organizations/local/obligations/evidence/invoice.txt",
+        scan_status="clean",
+        scan_engine="clamav",
+        scan_details="stream: OK",
+        encryption="AES256",
+    )
+    assert created is True
+    assert evidence.status == "pending"
+    assert obligation.revision == 2
+
+    with pytest.raises(ObligationAccessError, match="different member"):
+        await service.review_evidence(
+            obligation.id,
+            evidence.id,
+            decision="accept",
+            expected_revision=2,
+            reviewer_membership_id=owner.id,
+            reviewer_subject=owner.subject,
+        )
+
+    evidence, obligation = await service.review_evidence(
+        obligation.id,
+        evidence.id,
+        decision="accept",
+        expected_revision=2,
+        reviewer_membership_id=reviewer.id,
+        reviewer_subject=reviewer.subject,
+        note="Payment proof reconciled.",
+    )
+    assert evidence.status == "accepted"
+    assert evidence.reviewed_by_subject == reviewer.subject
+    assert obligation.revision == 3
+
+    obligation = await service.transition(
+        obligation.id,
+        to_status="completed",
+        expected_revision=3,
+        actor_membership_id=owner.id,
+        actor_subject=owner.subject,
+        may_manage=False,
+    )
+    assert obligation.status == "completed"
+    assert obligation.revision == 4
+
+    events = list(
+        (
+            await test_session.execute(
+                select(ObligationEvent)
+                .where(ObligationEvent.obligation_id == obligation.id)
+                .order_by(ObligationEvent.occurred_at, ObligationEvent.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [event.event_type for event in events] == [
+        "created",
+        "evidence_submitted",
+        "evidence_accepted",
+        "status_changed",
+    ]
+
+
+async def test_evidence_lookup_is_tenant_scoped_and_submission_is_idempotent(
+    test_session, test_settings
+):
+    fact = await _verified_payment_fact(test_session, test_settings)
+    owner = await _member(test_session, "owner@example.com")
+    service = ObligationService(test_session, test_session.info["organization_id"])
+    obligation, _ = await service.create_from_fact(
+        fact.id,
+        actor_subject="legal@example.com",
+        owner_membership_id=owner.id,
+    )
+    evidence, obligation, created = await service.submit_evidence(
+        obligation.id,
+        expected_revision=1,
+        actor_membership_id=owner.id,
+        actor_subject=owner.subject,
+        may_manage=False,
+        evidence_type="report",
+        filename="report.txt",
+        description=None,
+        sha256="b" * 64,
+        mime_type="text/plain",
+        content_size=10,
+        object_key="organizations/local/obligations/evidence/report.txt",
+        scan_status="clean",
+        scan_engine="clamav",
+        scan_details="stream: OK",
+        encryption="AES256",
+    )
+    replayed, replay_obligation, replay_created = await service.submit_evidence(
+        obligation.id,
+        expected_revision=2,
+        actor_membership_id=owner.id,
+        actor_subject=owner.subject,
+        may_manage=False,
+        evidence_type="report",
+        filename="renamed.txt",
+        description=None,
+        sha256="b" * 64,
+        mime_type="text/plain",
+        content_size=10,
+        object_key="unused",
+        scan_status="clean",
+        scan_engine="clamav",
+        scan_details="stream: OK",
+        encryption="AES256",
+    )
+
+    assert created is True
+    assert replay_created is False
+    assert replayed.id == evidence.id
+    assert replay_obligation.revision == 2
+    assert (
+        await ObligationService(test_session, uuid.uuid4()).find_evidence_by_hash(
+            obligation.id, "b" * 64
+        )
+        is None
+    )
+    assert len((await test_session.execute(select(ObligationEvidence))).scalars().all()) == 1
+
+
+async def test_obligation_evidence_api_upload_review_download_and_complete(
+    test_session, test_settings, api_client, monkeypatch
+):
+    objects: dict[str, bytes] = {}
+
+    async def put_object(self, object_key, content, metadata=None):
+        objects[object_key] = content
+
+    async def get_object(self, object_key):
+        return objects[object_key]
+
+    async def delete_object(self, object_key):
+        objects.pop(object_key, None)
+
+    monkeypatch.setattr(DocumentStorage, "put", put_object)
+    monkeypatch.setattr(DocumentStorage, "get", get_object)
+    monkeypatch.setattr(DocumentStorage, "delete", delete_object)
+
+    fact = await _verified_payment_fact(test_session, test_settings)
+    await test_session.commit()
+    created = await api_client.post(
+        f"/api/v1/obligations/from-facts/{fact.id}",
+        json={
+            "title": "Pay vendor invoice",
+            "evidence_requirements": {"required_types": ["invoice"]},
+        },
+    )
+    obligation = created.json()
+    members = (await api_client.get("/api/v1/organization/members")).json()
+    owner = next(item for item in members if item["subject"] == "local-development")
+    assigned = await api_client.patch(
+        f"/api/v1/obligations/{obligation['id']}/assignment",
+        json={"owner_membership_id": owner["id"], "expected_revision": 1},
+    )
+    assert assigned.status_code == 200
+
+    uploaded = await api_client.post(
+        f"/api/v1/obligations/{obligation['id']}/evidence",
+        data={"evidence_type": "invoice", "expected_revision": "2"},
+        files={"file": ("invoice.txt", b"invoice paid", "text/plain")},
+    )
+    assert uploaded.status_code == 201
+    upload_body = uploaded.json()
+    assert upload_body["evidence"]["status"] == "pending"
+    assert upload_body["obligation_revision"] == 3
+
+    evidence_id = upload_body["evidence"]["id"]
+    listed = await api_client.get(f"/api/v1/obligations/{obligation['id']}/evidence")
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()] == [evidence_id]
+
+    downloaded = await api_client.get(
+        f"/api/v1/obligations/{obligation['id']}/evidence/{evidence_id}/download"
+    )
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"invoice paid"
+
+    reviewed = await api_client.post(
+        f"/api/v1/obligations/{obligation['id']}/evidence/{evidence_id}/decisions",
+        json={"decision": "accept", "expected_revision": 3, "note": "Matched payment."},
+    )
+    assert reviewed.status_code == 200
+    assert reviewed.json()["evidence"]["status"] == "accepted"
+    assert reviewed.json()["obligation_revision"] == 4
+
+    completed = await api_client.post(
+        f"/api/v1/obligations/{obligation['id']}/transitions",
+        json={"to_status": "completed", "expected_revision": 4},
+    )
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"

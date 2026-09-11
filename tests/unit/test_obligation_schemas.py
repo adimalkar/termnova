@@ -18,6 +18,8 @@ def test_obligation_owner_can_act_but_cannot_reassign_work():
     permissions = ROLE_PERMISSIONS["obligation-owner"]
     assert "obligation:read" in permissions
     assert "obligation:act" in permissions
+    assert "obligation:evidence:submit" in permissions
+    assert "obligation:evidence:review" not in permissions
     assert "obligation:write" not in permissions
 
 
