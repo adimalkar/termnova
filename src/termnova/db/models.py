@@ -10,6 +10,7 @@ from sqlalchemy import (
     ARRAY,
     BigInteger,
     Boolean,
+    CheckConstraint,
     Computed,
     DateTime,
     Float,
@@ -543,6 +544,116 @@ class FactEvaluationExample(TenantOwned, Base):
     label: Mapped[str] = mapped_column(String(20), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Obligation(TenantOwned, Base):
+    """Accountable work item bound to the exact verified fact and source version."""
+
+    __tablename__ = "obligations"
+    __table_args__ = (
+        UniqueConstraint("source_fact_id", name="uq_obligation_source_fact"),
+        CheckConstraint(
+            "kind IN ('obligation', 'entitlement', 'option', 'condition_precedent', "
+            "'recurring_control', 'milestone')",
+            name="ck_obligation_kind",
+        ),
+        CheckConstraint(
+            "status IN ('unassigned', 'active', 'blocked', 'completed', 'waived', 'superseded')",
+            name="ck_obligation_status",
+        ),
+        CheckConstraint(
+            "priority IN ('low', 'medium', 'high', 'critical')",
+            name="ck_obligation_priority",
+        ),
+        CheckConstraint("lead_time_days >= 0", name="ck_obligation_lead_time"),
+        Index("ix_obligations_org_status_due", "organization_id", "status", "due_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source_fact_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("contract_facts.id", ondelete="RESTRICT"), nullable=False
+    )
+    logical_document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("logical_documents.id", ondelete="RESTRICT"), nullable=False
+    )
+    source_document_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_versions.id", ondelete="RESTRICT"), nullable=False
+    )
+    source_clause_occurrence_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clause_occurrences.id", ondelete="RESTRICT"), nullable=False
+    )
+    processing_snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("processing_snapshots.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    owner_membership_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organization_memberships.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    owner_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    due_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    due_rule: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    recurrence_rule: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    lead_time_days: Mapped[int] = mapped_column(Integer, nullable=False, default=14)
+    escalation_policy: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+    business_unit: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="unassigned", index=True
+    )
+    priority: Mapped[str] = mapped_column(String(20), nullable=False, default="medium")
+    evidence_requirements: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+    monetary_value: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class ObligationEvent(TenantOwned, Base):
+    """Append-only history for reconstructing an obligation's operational state."""
+
+    __tablename__ = "obligation_events"
+    __table_args__ = (
+        Index(
+            "ix_obligation_events_obligation_history",
+            "obligation_id",
+            "occurred_at",
+            "id",
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    obligation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("obligations.id", ondelete="RESTRICT"), nullable=False
+    )
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    actor_subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    from_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    to_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    details: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
 
 
