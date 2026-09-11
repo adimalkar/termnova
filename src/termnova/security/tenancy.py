@@ -21,18 +21,52 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "administrator": frozenset({"*"}),
     "local-admin": frozenset({"*"}),
     "legal-reviewer": frozenset(
-        {"document:read", "document:write", "query:run", "workspace:read", "workspace:write"}
+        {
+            "document:read",
+            "document:write",
+            "obligation:act",
+            "obligation:read",
+            "obligation:write",
+            "query:run",
+            "workspace:read",
+            "workspace:write",
+        }
     ),
     "procurement-reviewer": frozenset(
-        {"document:read", "document:write", "query:run", "workspace:read", "workspace:write"}
+        {
+            "document:read",
+            "document:write",
+            "obligation:act",
+            "obligation:read",
+            "obligation:write",
+            "query:run",
+            "workspace:read",
+            "workspace:write",
+        }
     ),
     "obligation-owner": frozenset(
-        {"document:read", "query:run", "workspace:read", "workspace:write"}
+        {
+            "document:read",
+            "obligation:act",
+            "obligation:read",
+            "query:run",
+            "workspace:read",
+            "workspace:write",
+        }
     ),
-    "auditor": frozenset({"document:read", "audit:read", "query:run"}),
-    "read-only": frozenset({"document:read", "query:run", "workspace:read"}),
+    "auditor": frozenset({"document:read", "audit:read", "obligation:read", "query:run"}),
+    "read-only": frozenset({"document:read", "obligation:read", "query:run", "workspace:read"}),
     "service": frozenset(
-        {"document:read", "document:write", "query:run", "workspace:read", "workspace:write"}
+        {
+            "document:read",
+            "document:write",
+            "obligation:act",
+            "obligation:read",
+            "obligation:write",
+            "query:run",
+            "workspace:read",
+            "workspace:write",
+        }
     ),
     "ingest": frozenset({"document:read", "document:write"}),
 }
