@@ -1,14 +1,36 @@
-"""Source-backed obligation ownership and lifecycle API."""
+"""Source-backed obligation ownership, fulfillment evidence, and lifecycle API."""
 
+import hashlib
+import re
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
+from fastapi.responses import Response as FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from termnova.api.dependencies import get_db_session, get_tenant_context
-from termnova.db.models import ClauseOccurrence, Obligation, ObligationEvent
+from termnova.api.dependencies import get_db_session, get_settings, get_tenant_context
+from termnova.config import Settings
+from termnova.db.models import (
+    ClauseOccurrence,
+    Obligation,
+    ObligationEvent,
+    ObligationEvidence,
+    RetentionPolicy,
+    StoredObject,
+)
 from termnova.lifecycle.schemas import ClauseEvidenceResponse
 from termnova.obligations import (
     ObligationAccessError,
@@ -19,12 +41,17 @@ from termnova.obligations.schemas import (
     ObligationAssignmentRequest,
     ObligationCreateFromFactRequest,
     ObligationEventResponse,
+    ObligationEvidenceDecisionRequest,
+    ObligationEvidenceResponse,
+    ObligationEvidenceSubmissionResponse,
     ObligationListResponse,
     ObligationResponse,
     ObligationRevisionRequest,
     ObligationTransitionRequest,
 )
+from termnova.security.intake import MalwareScanner, validate_content_type
 from termnova.security.tenancy import TenantContext, require_permission
+from termnova.storage import DocumentStorage
 
 router = APIRouter(prefix="/api/v1/obligations", tags=["Obligation Operations"])
 
@@ -70,6 +97,23 @@ def _mutation_error(exc: Exception) -> HTTPException:
     if isinstance(exc, ObligationAccessError):
         return HTTPException(status_code=403, detail=str(exc))
     return HTTPException(status_code=422, detail=str(exc))
+
+
+async def _evidence_retention_until(
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+) -> datetime | None:
+    policy = await session.scalar(
+        select(RetentionPolicy).where(
+            RetentionPolicy.organization_id == organization_id,
+            RetentionPolicy.is_default.is_(True),
+        )
+    )
+    if policy is None or not (
+        "obligation_evidence" in policy.applies_to or "*" in policy.applies_to
+    ):
+        return None
+    return datetime.now(UTC) + timedelta(days=policy.retain_days)
 
 
 @router.post(
@@ -238,6 +282,233 @@ async def transition_obligation(
     await session.commit()
     obligation, evidence = await _get_with_evidence(session, obligation.id, tenant.organization_id)
     return _response(obligation, evidence)
+
+
+@router.post(
+    "/{obligation_id}/evidence",
+    response_model=ObligationEvidenceSubmissionResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("obligation:evidence:submit"))],
+)
+async def submit_obligation_evidence(
+    obligation_id: uuid.UUID,
+    response: Response,
+    file: UploadFile = File(...),
+    evidence_type: str = Form(min_length=1, max_length=80),
+    expected_revision: int = Form(ge=1),
+    description: str | None = Form(default=None, max_length=2000),
+    tenant: TenantContext = Depends(get_tenant_context),
+    session: AsyncSession = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> ObligationEvidenceSubmissionResponse:
+    """Quarantine, scan, and attach a governed evidence artifact."""
+    obligation = await session.scalar(
+        select(Obligation).where(
+            Obligation.id == obligation_id,
+            Obligation.organization_id == tenant.organization_id,
+        )
+    )
+    if obligation is None:
+        raise HTTPException(status_code=404, detail="Obligation not found")
+    if obligation.owner_membership_id != tenant.membership_id and not tenant.allows(
+        "obligation:write"
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the assigned owner or a workflow manager can submit evidence",
+        )
+
+    raw_filename = Path(file.filename or "evidence.pdf").name
+    safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", raw_filename)
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded evidence is empty")
+    if len(content) > settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds maximum allowed size of {settings.MAX_UPLOAD_SIZE_MB}MB.",
+        )
+    try:
+        mime_type = validate_content_type(safe_filename, content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    normalized_type = evidence_type.strip().casefold().replace(" ", "_")
+    digest = hashlib.sha256(content).hexdigest()
+    service = ObligationService(session, tenant.organization_id)
+    existing = await service.find_evidence_by_hash(obligation_id, digest)
+    if existing is not None:
+        response.status_code = status.HTTP_200_OK
+        return ObligationEvidenceSubmissionResponse(
+            evidence=ObligationEvidenceResponse.model_validate(existing),
+            obligation_revision=obligation.revision,
+        )
+
+    nonce = uuid.uuid4()
+    base_key = (
+        f"organizations/{tenant.organization_id}/obligations/{obligation_id}/evidence/{nonce}"
+    )
+    quarantine_key = f"{base_key}/quarantine/{safe_filename}"
+    object_key = f"{base_key}/clean/{safe_filename}"
+    storage = DocumentStorage(settings)
+    try:
+        await storage.put(
+            quarantine_key,
+            content,
+            metadata={"intake-status": "quarantined", "sha256": digest},
+        )
+        scan = await MalwareScanner(settings).scan(content)
+        if not scan.clean:
+            raise HTTPException(status_code=422, detail="Evidence rejected by malware scanner")
+        await storage.move(quarantine_key, object_key)
+        evidence, obligation, created = await service.submit_evidence(
+            obligation_id,
+            expected_revision=expected_revision,
+            actor_membership_id=tenant.membership_id,
+            actor_subject=tenant.subject,
+            may_manage=tenant.allows("obligation:write"),
+            evidence_type=normalized_type,
+            filename=safe_filename,
+            description=description,
+            sha256=digest,
+            mime_type=mime_type,
+            content_size=len(content),
+            object_key=object_key,
+            scan_status="clean" if scan.engine != "disabled" else "not_scanned",
+            scan_engine=scan.engine,
+            scan_details=scan.details,
+            encryption=settings.STORAGE_SSE_ALGORITHM
+            if settings.STORAGE_BACKEND == "s3"
+            else "filesystem",
+            retention_until=await _evidence_retention_until(session, tenant.organization_id),
+        )
+        if not created:
+            await storage.delete(object_key)
+            response.status_code = status.HTTP_200_OK
+        await session.commit()
+    except HTTPException:
+        await session.rollback()
+        await storage.delete(quarantine_key)
+        await storage.delete(object_key)
+        raise
+    except (LookupError, ValueError, StaleObligationRevisionError, ObligationAccessError) as exc:
+        await session.rollback()
+        await storage.delete(quarantine_key)
+        await storage.delete(object_key)
+        raise _mutation_error(exc) from exc
+    except Exception:
+        await session.rollback()
+        await storage.delete(quarantine_key)
+        await storage.delete(object_key)
+        raise
+    return ObligationEvidenceSubmissionResponse(
+        evidence=ObligationEvidenceResponse.model_validate(evidence),
+        obligation_revision=obligation.revision,
+    )
+
+
+@router.get(
+    "/{obligation_id}/evidence",
+    response_model=list[ObligationEvidenceResponse],
+)
+async def list_obligation_evidence(
+    obligation_id: uuid.UUID,
+    tenant: TenantContext = Depends(get_tenant_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[ObligationEvidence]:
+    if (
+        await session.scalar(
+            select(Obligation.id).where(
+                Obligation.id == obligation_id,
+                Obligation.organization_id == tenant.organization_id,
+            )
+        )
+        is None
+    ):
+        raise HTTPException(status_code=404, detail="Obligation not found")
+    return list(
+        (
+            await session.execute(
+                select(ObligationEvidence)
+                .where(
+                    ObligationEvidence.obligation_id == obligation_id,
+                    ObligationEvidence.organization_id == tenant.organization_id,
+                )
+                .order_by(ObligationEvidence.submitted_at, ObligationEvidence.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+@router.post(
+    "/{obligation_id}/evidence/{evidence_id}/decisions",
+    response_model=ObligationEvidenceSubmissionResponse,
+    dependencies=[Depends(require_permission("obligation:evidence:review"))],
+)
+async def review_obligation_evidence(
+    obligation_id: uuid.UUID,
+    evidence_id: uuid.UUID,
+    payload: ObligationEvidenceDecisionRequest,
+    tenant: TenantContext = Depends(get_tenant_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> ObligationEvidenceSubmissionResponse:
+    try:
+        evidence, obligation = await ObligationService(
+            session, tenant.organization_id
+        ).review_evidence(
+            obligation_id,
+            evidence_id,
+            decision=payload.decision,
+            expected_revision=payload.expected_revision,
+            reviewer_membership_id=tenant.membership_id,
+            reviewer_subject=tenant.subject,
+            note=payload.note,
+        )
+    except (LookupError, ValueError, StaleObligationRevisionError, ObligationAccessError) as exc:
+        raise _mutation_error(exc) from exc
+    await session.commit()
+    return ObligationEvidenceSubmissionResponse(
+        evidence=ObligationEvidenceResponse.model_validate(evidence),
+        obligation_revision=obligation.revision,
+    )
+
+
+@router.get("/{obligation_id}/evidence/{evidence_id}/download")
+async def download_obligation_evidence(
+    obligation_id: uuid.UUID,
+    evidence_id: uuid.UUID,
+    tenant: TenantContext = Depends(get_tenant_context),
+    session: AsyncSession = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+):
+    row = (
+        await session.execute(
+            select(ObligationEvidence, StoredObject)
+            .join(StoredObject, ObligationEvidence.stored_object_id == StoredObject.id)
+            .where(
+                ObligationEvidence.id == evidence_id,
+                ObligationEvidence.obligation_id == obligation_id,
+                ObligationEvidence.organization_id == tenant.organization_id,
+                StoredObject.organization_id == tenant.organization_id,
+                StoredObject.deleted_at.is_(None),
+            )
+        )
+    ).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Obligation evidence not found")
+    evidence, stored_object = row
+    storage = DocumentStorage(settings)
+    signed_url = await storage.signed_download_url(stored_object.object_key)
+    if signed_url:
+        return {"url": signed_url, "expires_in": settings.STORAGE_SIGNED_URL_TTL_SECONDS}
+    content = await storage.get(stored_object.object_key)
+    return FileResponse(
+        content=content,
+        media_type=evidence.mime_type,
+        headers={"Content-Disposition": f'attachment; filename="{evidence.filename}"'},
+    )
 
 
 @router.get("/{obligation_id}/events", response_model=list[ObligationEventResponse])
