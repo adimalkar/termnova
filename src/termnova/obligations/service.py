@@ -15,6 +15,7 @@ from termnova.db.models import (
     Obligation,
     ObligationEvent,
     ObligationEvidence,
+    ObligationInstance,
     OrganizationMembership,
     StoredObject,
 )
@@ -222,12 +223,14 @@ class ObligationService:
         self,
         obligation_id: uuid.UUID,
         sha256: str,
+        obligation_instance_id: uuid.UUID | None = None,
     ) -> ObligationEvidence | None:
         """Return a previously submitted artifact without crossing the tenant boundary."""
         return await self.session.scalar(
             select(ObligationEvidence).where(
                 ObligationEvidence.obligation_id == obligation_id,
                 ObligationEvidence.organization_id == self.organization_id,
+                ObligationEvidence.obligation_instance_id == obligation_instance_id,
                 ObligationEvidence.sha256 == sha256,
             )
         )
@@ -252,6 +255,7 @@ class ObligationService:
         scan_details: str,
         encryption: str,
         retention_until: datetime | None = None,
+        obligation_instance_id: uuid.UUID | None = None,
     ) -> tuple[ObligationEvidence, Obligation, bool]:
         """Attach one idempotent, governed artifact to an obligation."""
         obligation = await self._locked(obligation_id, expected_revision)
@@ -261,7 +265,17 @@ class ObligationService:
             )
         if obligation.status in {"waived", "superseded"}:
             raise ValueError(f"Cannot add evidence to an obligation in {obligation.status} state")
-        existing = await self.find_evidence_by_hash(obligation_id, sha256)
+        if obligation_instance_id is not None:
+            instance = await self.session.scalar(
+                select(ObligationInstance).where(
+                    ObligationInstance.id == obligation_instance_id,
+                    ObligationInstance.obligation_id == obligation.id,
+                    ObligationInstance.organization_id == self.organization_id,
+                )
+            )
+            if instance is None:
+                raise LookupError("Obligation instance not found")
+        existing = await self.find_evidence_by_hash(obligation_id, sha256, obligation_instance_id)
         if existing is not None:
             return existing, obligation, False
 
@@ -283,6 +297,7 @@ class ObligationService:
         evidence = ObligationEvidence(
             organization_id=self.organization_id,
             obligation_id=obligation.id,
+            obligation_instance_id=obligation_instance_id,
             stored_object_id=stored_object.id,
             evidence_type=evidence_type,
             filename=filename,
@@ -305,6 +320,9 @@ class ObligationService:
             details={
                 "evidence_id": str(evidence.id),
                 "evidence_type": evidence.evidence_type,
+                "obligation_instance_id": str(obligation_instance_id)
+                if obligation_instance_id
+                else None,
                 "sha256": evidence.sha256,
                 "revision": obligation.revision,
             },
@@ -363,6 +381,9 @@ class ObligationService:
             details={
                 "evidence_id": str(evidence.id),
                 "evidence_type": evidence.evidence_type,
+                "obligation_instance_id": str(evidence.obligation_instance_id)
+                if evidence.obligation_instance_id
+                else None,
                 "note": note,
                 "revision": obligation.revision,
             },
@@ -392,6 +413,7 @@ class ObligationService:
                     select(ObligationEvidence).where(
                         ObligationEvidence.obligation_id == obligation.id,
                         ObligationEvidence.organization_id == self.organization_id,
+                        ObligationEvidence.obligation_instance_id.is_(None),
                         ObligationEvidence.status == "accepted",
                     )
                 )

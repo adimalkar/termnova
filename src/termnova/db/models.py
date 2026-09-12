@@ -657,12 +657,107 @@ class ObligationEvent(TenantOwned, Base):
     )
 
 
+class ObligationInstance(TenantOwned, Base):
+    """One independently tracked occurrence generated from a recurring obligation."""
+
+    __tablename__ = "obligation_instances"
+    __table_args__ = (
+        UniqueConstraint("obligation_id", "scheduled_for", name="uq_obligation_instance_schedule"),
+        CheckConstraint(
+            "status IN ('scheduled', 'active', 'blocked', 'completed', 'waived', 'superseded')",
+            name="ck_obligation_instance_status",
+        ),
+        Index(
+            "ix_obligation_instances_org_status_due",
+            "organization_id",
+            "status",
+            "due_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    obligation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("obligations.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="scheduled", index=True)
+    owner_membership_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organization_memberships.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    owner_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_obligation_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_document_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("document_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    recurrence_rule_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    evidence_requirements_snapshot: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+    monetary_value_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+    currency_snapshot: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class ObligationInstanceEvent(TenantOwned, Base):
+    """Append-only state history for one recurring obligation occurrence."""
+
+    __tablename__ = "obligation_instance_events"
+    __table_args__ = (
+        Index(
+            "ix_obligation_instance_events_history",
+            "obligation_instance_id",
+            "occurred_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    obligation_instance_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("obligation_instances.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    actor_subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    from_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    to_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    details: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+
 class ObligationEvidence(TenantOwned, Base):
     """Governed fulfillment evidence with an explicit acceptance decision."""
 
     __tablename__ = "obligation_evidence"
     __table_args__ = (
-        UniqueConstraint("obligation_id", "sha256", name="uq_obligation_evidence_hash"),
+        Index(
+            "uq_obligation_evidence_scope_hash",
+            "obligation_id",
+            "obligation_instance_id",
+            "sha256",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
+        ),
         CheckConstraint(
             "status IN ('pending', 'accepted', 'rejected')",
             name="ck_obligation_evidence_status",
@@ -678,6 +773,12 @@ class ObligationEvidence(TenantOwned, Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     obligation_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("obligations.id", ondelete="RESTRICT"), nullable=False
+    )
+    obligation_instance_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("obligation_instances.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
     )
     stored_object_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
