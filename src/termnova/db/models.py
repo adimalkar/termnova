@@ -699,6 +699,10 @@ class ObligationInstance(TenantOwned, Base):
         nullable=False,
     )
     recurrence_rule_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    lead_time_days_snapshot: Mapped[int] = mapped_column(Integer, nullable=False)
+    escalation_policy_snapshot: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
     evidence_requirements_snapshot: Mapped[dict[str, Any]] = mapped_column(
         JSONB, default=dict, server_default="{}", nullable=False
     )
@@ -742,6 +746,85 @@ class ObligationInstanceEvent(TenantOwned, Base):
     )
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+
+class ObligationAlert(TenantOwned, Base):
+    """Durable, idempotent reminder or escalation for an obligation occurrence."""
+
+    __tablename__ = "obligation_alerts"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "idempotency_key",
+            name="uq_org_obligation_alert_idempotency",
+        ),
+        CheckConstraint(
+            "alert_type IN ('reminder', 'due', 'escalation')",
+            name="ck_obligation_alert_type",
+        ),
+        CheckConstraint(
+            "status IN ('scheduled', 'ready', 'acknowledged', 'cancelled')",
+            name="ck_obligation_alert_status",
+        ),
+        CheckConstraint(
+            "((alert_type = 'escalation' AND escalation_level > 0) OR "
+            "(alert_type <> 'escalation' AND escalation_level = 0))",
+            name="ck_obligation_alert_level",
+        ),
+        CheckConstraint("channel = 'in_app'", name="ck_obligation_alert_channel"),
+        CheckConstraint(
+            "owner_membership_id IS NOT NULL OR owner_subject IS NOT NULL OR target_role IS NOT NULL",
+            name="ck_obligation_alert_recipient",
+        ),
+        Index(
+            "ix_obligation_alerts_org_status_schedule",
+            "organization_id",
+            "status",
+            "scheduled_for",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    obligation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("obligations.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    obligation_instance_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("obligation_instances.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    alert_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    escalation_level: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    owner_membership_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organization_memberships.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    owner_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    target_role: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    channel: Mapped[str] = mapped_column(String(30), nullable=False, default="in_app")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="scheduled", index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(500), nullable=False)
+    policy_snapshot: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    ready_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledged_by_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
 

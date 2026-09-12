@@ -8,6 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from termnova.lifecycle.schemas import ClauseEvidenceResponse
+from termnova.obligations.policies import normalize_escalation_policy
 
 ObligationKind = Literal[
     "obligation",
@@ -40,6 +41,11 @@ class ObligationCreateFromFactRequest(BaseModel):
         if value is not None and value.tzinfo is None:
             raise ValueError("due_at must include a timezone")
         return value
+
+    @field_validator("escalation_policy")
+    @classmethod
+    def validate_escalation_policy(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return normalize_escalation_policy(value)
 
 
 class ObligationAssignmentRequest(BaseModel):
@@ -181,6 +187,8 @@ class ObligationInstanceResponse(BaseModel):
     source_obligation_revision: int
     source_document_version_id: uuid.UUID
     recurrence_rule_snapshot: dict[str, Any]
+    lead_time_days_snapshot: int
+    escalation_policy_snapshot: dict[str, Any]
     evidence_requirements_snapshot: dict[str, Any]
     monetary_value_snapshot: Decimal | None
     currency_snapshot: str | None
@@ -214,3 +222,34 @@ class ObligationInstanceEventResponse(BaseModel):
     to_status: str | None
     details: dict[str, Any]
     occurred_at: datetime
+
+
+class ObligationAlertResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    obligation_id: uuid.UUID
+    obligation_instance_id: uuid.UUID | None
+    alert_type: Literal["reminder", "due", "escalation"]
+    escalation_level: int
+    scheduled_for: datetime
+    due_at: datetime
+    owner_membership_id: uuid.UUID | None
+    owner_subject: str | None
+    target_role: str | None
+    channel: Literal["in_app"]
+    status: Literal["scheduled", "ready", "acknowledged", "cancelled"]
+    policy_snapshot: dict[str, Any]
+    revision: int
+    ready_at: datetime | None
+    acknowledged_at: datetime | None
+    acknowledged_by_subject: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ObligationAlertListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    alerts: list[ObligationAlertResponse] = Field(default_factory=list)
