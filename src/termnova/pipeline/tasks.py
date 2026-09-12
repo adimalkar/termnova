@@ -8,6 +8,7 @@ import structlog
 
 from termnova.config import get_settings
 from termnova.db.connection import create_async_engine
+from termnova.lifecycle import VersionLifecycleService
 from termnova.operations.jobs import mark_job_completed, mark_job_failed, mark_job_started
 from termnova.pipeline.celery_app import celery_app
 from termnova.pipeline.embedder import EmbeddingService
@@ -48,6 +49,8 @@ def ingest_document_task(
             job = await mark_job_started(session, job_id)
             if job.status == "completed":
                 return {"document_id": document_id_str, "status": "completed", "idempotent": True}
+            lifecycle = VersionLifecycleService(session)
+            await lifecycle.mark_processing(uuid.UUID(document_id_str))
             await session.commit()
             embedder = EmbeddingService(settings)
             pipeline = IngestionPipeline(session, embedder, settings)
@@ -55,6 +58,7 @@ def ingest_document_task(
             try:
                 logger.info("Celery worker starting document ingestion", key=storage_key)
                 doc = await pipeline.ingest_file(file_path, document_id=document_id)
+                version_analysis = await lifecycle.analyze_and_promote(document_id)
                 await mark_job_completed(session, job_id)
                 await session.commit()
                 try:
@@ -65,12 +69,18 @@ def ingest_document_task(
                     await redis.aclose()
                 except Exception as cache_error:
                     logger.warning("Corpus cache version update failed", error=str(cache_error))
-                return {
+                result = {
                     "document_id": str(doc.id),
                     "filename": doc.filename,
                     "status": doc.processing_status,
                     "page_count": doc.page_count,
                 }
+                if version_analysis is not None:
+                    result["document_version_id"] = str(version_analysis.version_id)
+                    result["change_classification"] = version_analysis.classification
+                    result["changed_clauses"] = version_analysis.changed_clauses
+                    result["requires_review"] = version_analysis.requires_review
+                return result
             except Exception as exc:
                 await session.rollback()
                 await apply_organization_context(
@@ -84,6 +94,7 @@ def ingest_document_task(
                     exc,
                     final=self.request.retries >= self.max_retries,
                 )
+                await VersionLifecycleService(session).mark_failed(document_id)
                 from termnova.db.repository import ContractRepository
 
                 await ContractRepository(session).update_document_status(
