@@ -546,6 +546,65 @@ class FactEvaluationExample(TenantOwned, Base):
     )
 
 
+class ClauseTranslation(TenantOwned, Base):
+    """Optional translated view that never replaces authoritative source text."""
+
+    __tablename__ = "clause_translations"
+    __table_args__ = (
+        UniqueConstraint(
+            "clause_occurrence_id",
+            "target_language",
+            "provider",
+            "model",
+            name="uq_clause_translation_version",
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    clause_occurrence_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clause_occurrences.id", ondelete="CASCADE"), nullable=False
+    )
+    processing_snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("processing_snapshots.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    source_language: Mapped[str] = mapped_column(String(35), nullable=False)
+    target_language: Mapped[str] = mapped_column(String(35), nullable=False)
+    translated_text: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    model: Mapped[str] = mapped_column(String(255), nullable=False)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="machine")
+    warning: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class TerminologyEntry(TenantOwned, Base):
+    """Organization-approved terminology used to guide, not overwrite, translation."""
+
+    __tablename__ = "terminology_entries"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "source_language",
+            "target_language",
+            "source_term",
+            name="uq_org_terminology_pair",
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source_language: Mapped[str] = mapped_column(String(35), nullable=False)
+    target_language: Mapped[str] = mapped_column(String(35), nullable=False)
+    source_term: Mapped[str] = mapped_column(String(500), nullable=False)
+    approved_translation: Mapped[str] = mapped_column(String(500), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class ConnectorConnection(TenantOwned, Base):
     """OAuth/service connection metadata; secrets remain in an external secret store."""
 
