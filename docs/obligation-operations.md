@@ -28,6 +28,15 @@ into accountable work without severing the chain back to the executed source.
 - Recurrence expansion requires an explicit IANA timezone, accepts bounded RFC 5545 rules with
   daily, weekly, monthly, or yearly frequency, and limits each request to a 366-day window and 500
   occurrences. Materialization is idempotent for an obligation and scheduled timestamp.
+- A globally locked automation pass maintains a 90-day rolling occurrence window every 15 minutes.
+  It creates idempotent reminder, due, and configured escalation alerts, cancels alerts when their
+  work becomes terminal, and writes alert delivery to the transactional outbox in the same commit.
+- Recurring instances freeze lead time and escalation policy along with their other source
+  snapshots. Later edits therefore affect future materialization without silently changing alerts
+  or attestations for an already-generated occurrence.
+- This increment deliberately accepts only the `in_app` channel. Email, calendar, Slack/Teams,
+  Jira, and webhook adapters must consume the durable `obligation.alert.ready` outbox contract in
+  later integration PRs rather than pretending an external delivery happened.
 
 ## API workflow
 
@@ -53,6 +62,27 @@ into accountable work without severing the chain back to the executed source.
    occurrence history at `GET /api/v1/obligations/{id}/instances/{instance_id}/events`.
 11. Reviewers and auditors can reconstruct the parent history at
    `GET /api/v1/obligations/{id}/events`.
+12. Owners list their alert feed at `GET /api/v1/obligations/alerts`. Workflow managers and auditors
+    can request the organization view with `mine=false`; other roles remain recipient-scoped.
+13. A recipient or workflow manager acknowledges a ready alert at
+    `POST /api/v1/obligations/alerts/{alert_id}/acknowledgements` using its expected revision.
+
+## Escalation policy contract
+
+`escalation_policy.steps` accepts at most ten distinct, ordered `after_days` values between 0 and
+3650. Each step targets `owner`, `legal-reviewer`, `procurement-reviewer`, or `administrator` and
+currently uses `channel: in_app`. Unsupported fields, recipients, channels, duplicate delays, and
+unbounded delays are rejected before the obligation is created. An owner-targeted alert for
+unassigned work falls back to the procurement-reviewer role instead of disappearing.
+
+The scheduled command is safe to replay:
+
+```bash
+python -m termnova.obligations.automation --horizon-days 90 --lookback-days 30
+```
+
+One PostgreSQL advisory lock prevents overlapping global runs. Tenant failures are isolated and
+reported with a non-zero exit code after the remaining organizations have been processed.
 
 All mutation requests after creation require `expected_revision`. A stale request returns HTTP 409.
 Invalid transitions return HTTP 422, and owner-only actions return HTTP 403.
@@ -68,7 +98,7 @@ Invalid transitions return HTTP 422, and owner-only actions return HTTP 403.
 
 ## Deliberately deferred Phase 2 increments
 
-Automated rolling-window materialization, reminders/escalations, bulk assignment rules,
-evidence-package export, and external action delivery belong in separate reviewable PRs built on
-this foundation. Until scheduler automation lands, an authorized manager or deployment task must
-call the idempotent materialization endpoint for the desired horizon.
+Bulk assignment rules, evidence-package export, digests/calendar views, and external action
+delivery belong in separate reviewable PRs built on this foundation. The in-app alert feed and
+transactional outbox are now present; no external channel should be advertised until its adapter
+records an actual delivery receipt.

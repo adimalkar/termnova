@@ -181,6 +181,8 @@ class RecurringObligationService:
                 source_obligation_revision=obligation.revision,
                 source_document_version_id=obligation.source_document_version_id,
                 recurrence_rule_snapshot=dict(obligation.recurrence_rule),
+                lead_time_days_snapshot=obligation.lead_time_days,
+                escalation_policy_snapshot=dict(obligation.escalation_policy or {}),
                 evidence_requirements_snapshot=dict(obligation.evidence_requirements or {}),
                 monetary_value_snapshot=obligation.monetary_value,
                 currency_snapshot=obligation.currency,
