@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from termnova.lifecycle.schemas import ClauseEvidenceResponse
 
@@ -120,6 +120,7 @@ class ObligationEvidenceResponse(BaseModel):
 
     id: uuid.UUID
     obligation_id: uuid.UUID
+    obligation_instance_id: uuid.UUID | None
     stored_object_id: uuid.UUID
     evidence_type: str
     filename: str
@@ -142,3 +143,74 @@ class ObligationEvidenceResponse(BaseModel):
 class ObligationEvidenceSubmissionResponse(BaseModel):
     evidence: ObligationEvidenceResponse
     obligation_revision: int
+
+
+class ObligationInstanceMaterializeRequest(BaseModel):
+    window_start: datetime
+    window_end: datetime
+
+    @field_validator("window_start", "window_end")
+    @classmethod
+    def require_window_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("materialization windows must include a timezone")
+        return value
+
+    @model_validator(mode="after")
+    def validate_window_order(self) -> "ObligationInstanceMaterializeRequest":
+        if self.window_end < self.window_start:
+            raise ValueError("window_end must not precede window_start")
+        return self
+
+
+class ObligationInstanceTransitionRequest(ObligationRevisionRequest):
+    to_status: Literal["active", "blocked", "completed", "waived", "superseded"]
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+class ObligationInstanceResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    obligation_id: uuid.UUID
+    scheduled_for: datetime
+    due_at: datetime
+    status: Literal["scheduled", "active", "blocked", "completed", "waived", "superseded"]
+    owner_membership_id: uuid.UUID | None
+    owner_subject: str | None
+    source_obligation_revision: int
+    source_document_version_id: uuid.UUID
+    recurrence_rule_snapshot: dict[str, Any]
+    evidence_requirements_snapshot: dict[str, Any]
+    monetary_value_snapshot: Decimal | None
+    currency_snapshot: str | None
+    revision: int
+    completed_at: datetime | None
+    generated_at: datetime
+    updated_at: datetime
+
+
+class ObligationInstanceMaterializeResponse(BaseModel):
+    created_count: int
+    existing_count: int
+    instances: list[ObligationInstanceResponse] = Field(default_factory=list)
+
+
+class ObligationInstanceListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    instances: list[ObligationInstanceResponse] = Field(default_factory=list)
+
+
+class ObligationInstanceEventResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    obligation_instance_id: uuid.UUID
+    event_type: str
+    actor_subject: str
+    from_status: str | None
+    to_status: str | None
+    details: dict[str, Any]
+    occurred_at: datetime

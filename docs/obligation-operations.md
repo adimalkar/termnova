@@ -21,6 +21,13 @@ into accountable work without severing the chain back to the executed source.
 - Completion is blocked until every configured evidence type and minimum accepted count is met.
   Regulated, explicitly controlled, or configured high-value obligations require a reviewer other
   than the submitter to accept the evidence.
+- Recurring obligations materialize into independently owned and completed instances. Each instance
+  freezes the source obligation revision, document version, recurrence policy, evidence policy, and
+  owner and monetary exposure that applied when it was generated, so later contract or workflow
+  edits do not rewrite historical work.
+- Recurrence expansion requires an explicit IANA timezone, accepts bounded RFC 5545 rules with
+  daily, weekly, monthly, or yearly frequency, and limits each request to a 366-day window and 500
+  occurrences. Materialization is idempotent for an obligation and scheduled timestamp.
 
 ## API workflow
 
@@ -37,7 +44,14 @@ into accountable work without severing the chain back to the executed source.
    keys are never exposed.
 8. The owner or a workflow manager uses `POST /api/v1/obligations/{id}/transitions` to block,
    complete, waive, supersede, or reopen it. Completion enforces the configured evidence policy.
-9. Reviewers and auditors can reconstruct the history at
+9. For recurring work, a manager calls
+   `POST /api/v1/obligations/{id}/instances/materialize` with timezone-aware window boundaries.
+   Owners operate each occurrence through `POST /api/v1/obligations/{id}/instances/{instance_id}/transitions`.
+   Evidence can be scoped to an occurrence by including `obligation_instance_id` in the evidence
+   upload; proof from one occurrence never completes another.
+10. Consumers list occurrences at `GET /api/v1/obligations/{id}/instances` and reconstruct an
+   occurrence history at `GET /api/v1/obligations/{id}/instances/{instance_id}/events`.
+11. Reviewers and auditors can reconstruct the parent history at
    `GET /api/v1/obligations/{id}/events`.
 
 All mutation requests after creation require `expected_revision`. A stale request returns HTTP 409.
@@ -54,6 +68,7 @@ Invalid transitions return HTTP 422, and owner-only actions return HTTP 403.
 
 ## Deliberately deferred Phase 2 increments
 
-This slice stores recurrence policy without generating independently tracked occurrences. Recurring
-instances, reminders/escalations, bulk assignment rules, evidence-package export, and external
-action delivery belong in separate reviewable PRs built on this foundation.
+Automated rolling-window materialization, reminders/escalations, bulk assignment rules,
+evidence-package export, and external action delivery belong in separate reviewable PRs built on
+this foundation. Until scheduler automation lands, an authorized manager or deployment task must
+call the idempotent materialization endpoint for the desired horizon.
