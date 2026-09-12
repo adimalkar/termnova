@@ -16,6 +16,7 @@ from termnova.db.models import (
     LogicalDocument,
     ObligationEvent,
     ObligationEvidence,
+    ObligationInstanceEvent,
     Organization,
     OrganizationMembership,
 )
@@ -24,6 +25,7 @@ from termnova.lifecycle import VersionLifecycleService
 from termnova.obligations import (
     ObligationAccessError,
     ObligationService,
+    RecurringObligationService,
     StaleObligationRevisionError,
 )
 from termnova.operations.jobs import get_or_create_snapshot
@@ -605,3 +607,206 @@ async def test_obligation_evidence_api_upload_review_download_and_complete(
     )
     assert completed.status_code == 200
     assert completed.json()["status"] == "completed"
+
+
+async def test_recurring_instances_are_idempotent_snapshots_with_scoped_evidence(
+    test_session, test_settings
+):
+    fact = await _verified_payment_fact(test_session, test_settings)
+    owner = await _member(test_session, "recurrence-owner@example.com")
+    reviewer = await _member(test_session, "recurrence-reviewer@example.com", "legal-reviewer")
+    obligation_service = ObligationService(test_session, test_session.info["organization_id"])
+    obligation, _ = await obligation_service.create_from_fact(
+        fact.id,
+        actor_subject="legal@example.com",
+        owner_membership_id=owner.id,
+        due_at=datetime(2026, 3, 1, 14, tzinfo=UTC),
+        recurrence_rule={
+            "rrule": "FREQ=WEEKLY;COUNT=3",
+            "timezone": "America/New_York",
+        },
+        evidence_requirements={
+            "required_types": ["report"],
+            "minimum_accepted": 1,
+            "independent_acceptance": True,
+        },
+    )
+    recurring = RecurringObligationService(test_session, test_session.info["organization_id"])
+    instances, created_count = await recurring.materialize(
+        obligation.id,
+        window_start=datetime(2026, 3, 1, tzinfo=UTC),
+        window_end=datetime(2026, 3, 20, tzinfo=UTC),
+        actor_subject="legal@example.com",
+    )
+    replayed, replay_created = await recurring.materialize(
+        obligation.id,
+        window_start=datetime(2026, 3, 1, tzinfo=UTC),
+        window_end=datetime(2026, 3, 20, tzinfo=UTC),
+        actor_subject="legal@example.com",
+    )
+
+    assert created_count == 3
+    assert replay_created == 0
+    assert [item.id for item in replayed] == [item.id for item in instances]
+    assert [item.scheduled_for for item in instances] == [
+        datetime(2026, 3, 1, 14, tzinfo=UTC),
+        datetime(2026, 3, 8, 13, tzinfo=UTC),
+        datetime(2026, 3, 15, 13, tzinfo=UTC),
+    ]
+    assert all(item.source_obligation_revision == 1 for item in instances)
+    assert all(item.monetary_value_snapshot == 50000 for item in instances)
+    assert all(item.currency_snapshot == "USD" for item in instances)
+
+    obligation.recurrence_rule = {"rrule": "FREQ=MONTHLY", "timezone": "UTC"}
+    obligation.evidence_requirements = {}
+    obligation.revision += 1
+    await test_session.flush()
+    assert instances[0].recurrence_rule_snapshot["rrule"] == "FREQ=WEEKLY;COUNT=3"
+    assert instances[0].evidence_requirements_snapshot["required_types"] == ["report"]
+
+    with pytest.raises(ValueError, match="missing required types: report"):
+        await recurring.transition(
+            obligation.id,
+            instances[0].id,
+            to_status="completed",
+            expected_revision=1,
+            actor_membership_id=owner.id,
+            actor_subject=owner.subject,
+            may_manage=False,
+        )
+
+    evidence, obligation, created = await obligation_service.submit_evidence(
+        obligation.id,
+        expected_revision=2,
+        actor_membership_id=owner.id,
+        actor_subject=owner.subject,
+        may_manage=False,
+        evidence_type="report",
+        filename="weekly-report.txt",
+        description="Weekly control report",
+        sha256="c" * 64,
+        mime_type="text/plain",
+        content_size=24,
+        object_key="organizations/local/obligations/instances/report.txt",
+        scan_status="clean",
+        scan_engine="clamav",
+        scan_details="stream: OK",
+        encryption="AES256",
+        obligation_instance_id=instances[0].id,
+    )
+    assert created is True
+    assert evidence.obligation_instance_id == instances[0].id
+    evidence, obligation = await obligation_service.review_evidence(
+        obligation.id,
+        evidence.id,
+        decision="accept",
+        expected_revision=3,
+        reviewer_membership_id=reviewer.id,
+        reviewer_subject=reviewer.subject,
+    )
+    assert evidence.status == "accepted"
+
+    completed = await recurring.transition(
+        obligation.id,
+        instances[0].id,
+        to_status="completed",
+        expected_revision=1,
+        actor_membership_id=owner.id,
+        actor_subject=owner.subject,
+        may_manage=False,
+    )
+    assert completed.status == "completed"
+    assert completed.revision == 2
+    with pytest.raises(ValueError, match="missing required types: report"):
+        await recurring.transition(
+            obligation.id,
+            instances[1].id,
+            to_status="completed",
+            expected_revision=1,
+            actor_membership_id=owner.id,
+            actor_subject=owner.subject,
+            may_manage=False,
+        )
+
+    event_types = list(
+        (
+            await test_session.execute(
+                select(ObligationInstanceEvent.event_type)
+                .where(ObligationInstanceEvent.obligation_instance_id == instances[0].id)
+                .order_by(ObligationInstanceEvent.occurred_at, ObligationInstanceEvent.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert event_types == ["generated", "status_changed"]
+
+    with pytest.raises(LookupError, match="Obligation not found"):
+        await RecurringObligationService(test_session, uuid.uuid4()).materialize(
+            obligation.id,
+            window_start=datetime(2026, 3, 1, tzinfo=UTC),
+            window_end=datetime(2026, 3, 20, tzinfo=UTC),
+            actor_subject="cross-tenant@example.com",
+        )
+
+
+async def test_recurring_instance_api_materializes_lists_transitions_and_audits(
+    test_session, test_settings, api_client
+):
+    fact = await _verified_payment_fact(test_session, test_settings)
+    await test_session.commit()
+    members = (await api_client.get("/api/v1/organization/members")).json()
+    owner = next(item for item in members if item["subject"] == "local-development")
+    created = await api_client.post(
+        f"/api/v1/obligations/from-facts/{fact.id}",
+        json={
+            "title": "Deliver weekly report",
+            "owner_membership_id": owner["id"],
+            "due_at": "2026-04-01T09:00:00Z",
+            "recurrence_rule": {"rrule": "FREQ=WEEKLY;COUNT=2", "timezone": "UTC"},
+        },
+    )
+    assert created.status_code == 201
+    obligation_id = created.json()["id"]
+
+    materialized = await api_client.post(
+        f"/api/v1/obligations/{obligation_id}/instances/materialize",
+        json={
+            "window_start": "2026-04-01T00:00:00Z",
+            "window_end": "2026-04-30T00:00:00Z",
+        },
+    )
+    assert materialized.status_code == 200
+    assert materialized.json()["created_count"] == 2
+    instance_id = materialized.json()["instances"][0]["id"]
+
+    replayed = await api_client.post(
+        f"/api/v1/obligations/{obligation_id}/instances/materialize",
+        json={
+            "window_start": "2026-04-01T00:00:00Z",
+            "window_end": "2026-04-30T00:00:00Z",
+        },
+    )
+    assert replayed.status_code == 200
+    assert replayed.json()["created_count"] == 0
+    assert replayed.json()["existing_count"] == 2
+
+    listed = await api_client.get(f"/api/v1/obligations/{obligation_id}/instances?status=scheduled")
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 2
+
+    completed = await api_client.post(
+        f"/api/v1/obligations/{obligation_id}/instances/{instance_id}/transitions",
+        json={"to_status": "completed", "expected_revision": 1},
+    )
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
+
+    events = await api_client.get(
+        f"/api/v1/obligations/{obligation_id}/instances/{instance_id}/events"
+    )
+    assert events.status_code == 200
+    assert [item["event_type"] for item in events.json()] == [
+        "generated",
+        "status_changed",
+    ]

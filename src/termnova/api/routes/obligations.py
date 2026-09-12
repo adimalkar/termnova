@@ -28,6 +28,8 @@ from termnova.db.models import (
     Obligation,
     ObligationEvent,
     ObligationEvidence,
+    ObligationInstance,
+    ObligationInstanceEvent,
     RetentionPolicy,
     StoredObject,
 )
@@ -35,6 +37,7 @@ from termnova.lifecycle.schemas import ClauseEvidenceResponse
 from termnova.obligations import (
     ObligationAccessError,
     ObligationService,
+    RecurringObligationService,
     StaleObligationRevisionError,
 )
 from termnova.obligations.schemas import (
@@ -44,6 +47,12 @@ from termnova.obligations.schemas import (
     ObligationEvidenceDecisionRequest,
     ObligationEvidenceResponse,
     ObligationEvidenceSubmissionResponse,
+    ObligationInstanceEventResponse,
+    ObligationInstanceListResponse,
+    ObligationInstanceMaterializeRequest,
+    ObligationInstanceMaterializeResponse,
+    ObligationInstanceResponse,
+    ObligationInstanceTransitionRequest,
     ObligationListResponse,
     ObligationResponse,
     ObligationRevisionRequest,
@@ -285,6 +294,152 @@ async def transition_obligation(
 
 
 @router.post(
+    "/{obligation_id}/instances/materialize",
+    response_model=ObligationInstanceMaterializeResponse,
+    dependencies=[Depends(require_permission("obligation:write"))],
+)
+async def materialize_obligation_instances(
+    obligation_id: uuid.UUID,
+    payload: ObligationInstanceMaterializeRequest,
+    tenant: TenantContext = Depends(get_tenant_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> ObligationInstanceMaterializeResponse:
+    try:
+        instances, created_count = await RecurringObligationService(
+            session, tenant.organization_id
+        ).materialize(
+            obligation_id,
+            window_start=payload.window_start,
+            window_end=payload.window_end,
+            actor_subject=tenant.subject,
+        )
+    except (LookupError, ValueError) as exc:
+        raise _mutation_error(exc) from exc
+    await session.commit()
+    return ObligationInstanceMaterializeResponse(
+        created_count=created_count,
+        existing_count=len(instances) - created_count,
+        instances=[ObligationInstanceResponse.model_validate(item) for item in instances],
+    )
+
+
+@router.get(
+    "/{obligation_id}/instances",
+    response_model=ObligationInstanceListResponse,
+)
+async def list_obligation_instances(
+    obligation_id: uuid.UUID,
+    status_filter: str | None = Query(default=None, alias="status"),
+    due_before: datetime | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    tenant: TenantContext = Depends(get_tenant_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> ObligationInstanceListResponse:
+    obligation_exists = await session.scalar(
+        select(Obligation.id).where(
+            Obligation.id == obligation_id,
+            Obligation.organization_id == tenant.organization_id,
+        )
+    )
+    if obligation_exists is None:
+        raise HTTPException(status_code=404, detail="Obligation not found")
+    filters = [
+        ObligationInstance.obligation_id == obligation_id,
+        ObligationInstance.organization_id == tenant.organization_id,
+    ]
+    if status_filter:
+        filters.append(ObligationInstance.status == status_filter)
+    if due_before:
+        filters.append(ObligationInstance.due_at <= due_before)
+    total = await session.scalar(select(func.count(ObligationInstance.id)).where(*filters)) or 0
+    instances = list(
+        (
+            await session.execute(
+                select(ObligationInstance)
+                .where(*filters)
+                .order_by(ObligationInstance.due_at, ObligationInstance.id)
+                .offset(offset)
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return ObligationInstanceListResponse(
+        total=total,
+        limit=limit,
+        offset=offset,
+        instances=[ObligationInstanceResponse.model_validate(item) for item in instances],
+    )
+
+
+@router.post(
+    "/{obligation_id}/instances/{instance_id}/transitions",
+    response_model=ObligationInstanceResponse,
+    dependencies=[Depends(require_permission("obligation:act"))],
+)
+async def transition_obligation_instance(
+    obligation_id: uuid.UUID,
+    instance_id: uuid.UUID,
+    payload: ObligationInstanceTransitionRequest,
+    tenant: TenantContext = Depends(get_tenant_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> ObligationInstanceResponse:
+    try:
+        instance = await RecurringObligationService(session, tenant.organization_id).transition(
+            obligation_id,
+            instance_id,
+            to_status=payload.to_status,
+            expected_revision=payload.expected_revision,
+            actor_membership_id=tenant.membership_id,
+            actor_subject=tenant.subject,
+            may_manage=tenant.allows("obligation:write"),
+            reason=payload.reason,
+        )
+    except (LookupError, ValueError, StaleObligationRevisionError, ObligationAccessError) as exc:
+        raise _mutation_error(exc) from exc
+    await session.commit()
+    await session.refresh(instance)
+    return ObligationInstanceResponse.model_validate(instance)
+
+
+@router.get(
+    "/{obligation_id}/instances/{instance_id}/events",
+    response_model=list[ObligationInstanceEventResponse],
+)
+async def list_obligation_instance_events(
+    obligation_id: uuid.UUID,
+    instance_id: uuid.UUID,
+    tenant: TenantContext = Depends(get_tenant_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[ObligationInstanceEvent]:
+    instance_exists = await session.scalar(
+        select(ObligationInstance.id).where(
+            ObligationInstance.id == instance_id,
+            ObligationInstance.obligation_id == obligation_id,
+            ObligationInstance.organization_id == tenant.organization_id,
+        )
+    )
+    if instance_exists is None:
+        raise HTTPException(status_code=404, detail="Obligation instance not found")
+    return list(
+        (
+            await session.execute(
+                select(ObligationInstanceEvent)
+                .where(
+                    ObligationInstanceEvent.obligation_instance_id == instance_id,
+                    ObligationInstanceEvent.organization_id == tenant.organization_id,
+                )
+                .order_by(ObligationInstanceEvent.occurred_at, ObligationInstanceEvent.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+@router.post(
     "/{obligation_id}/evidence",
     response_model=ObligationEvidenceSubmissionResponse,
     status_code=status.HTTP_201_CREATED,
@@ -296,6 +451,7 @@ async def submit_obligation_evidence(
     file: UploadFile = File(...),
     evidence_type: str = Form(min_length=1, max_length=80),
     expected_revision: int = Form(ge=1),
+    obligation_instance_id: uuid.UUID | None = Form(default=None),
     description: str | None = Form(default=None, max_length=2000),
     tenant: TenantContext = Depends(get_tenant_context),
     session: AsyncSession = Depends(get_db_session),
@@ -336,7 +492,7 @@ async def submit_obligation_evidence(
     normalized_type = evidence_type.strip().casefold().replace(" ", "_")
     digest = hashlib.sha256(content).hexdigest()
     service = ObligationService(session, tenant.organization_id)
-    existing = await service.find_evidence_by_hash(obligation_id, digest)
+    existing = await service.find_evidence_by_hash(obligation_id, digest, obligation_instance_id)
     if existing is not None:
         response.status_code = status.HTTP_200_OK
         return ObligationEvidenceSubmissionResponse(
@@ -345,8 +501,10 @@ async def submit_obligation_evidence(
         )
 
     nonce = uuid.uuid4()
+    instance_scope = f"instances/{obligation_instance_id}" if obligation_instance_id else "parent"
     base_key = (
-        f"organizations/{tenant.organization_id}/obligations/{obligation_id}/evidence/{nonce}"
+        f"organizations/{tenant.organization_id}/obligations/{obligation_id}/"
+        f"{instance_scope}/evidence/{nonce}"
     )
     quarantine_key = f"{base_key}/quarantine/{safe_filename}"
     object_key = f"{base_key}/clean/{safe_filename}"
@@ -381,6 +539,7 @@ async def submit_obligation_evidence(
             if settings.STORAGE_BACKEND == "s3"
             else "filesystem",
             retention_until=await _evidence_retention_until(session, tenant.organization_id),
+            obligation_instance_id=obligation_instance_id,
         )
         if not created:
             await storage.delete(object_key)
@@ -413,6 +572,7 @@ async def submit_obligation_evidence(
 )
 async def list_obligation_evidence(
     obligation_id: uuid.UUID,
+    obligation_instance_id: uuid.UUID | None = Query(default=None),
     tenant: TenantContext = Depends(get_tenant_context),
     session: AsyncSession = Depends(get_db_session),
 ) -> list[ObligationEvidence]:
@@ -426,14 +586,17 @@ async def list_obligation_evidence(
         is None
     ):
         raise HTTPException(status_code=404, detail="Obligation not found")
+    filters = [
+        ObligationEvidence.obligation_id == obligation_id,
+        ObligationEvidence.organization_id == tenant.organization_id,
+    ]
+    if obligation_instance_id is not None:
+        filters.append(ObligationEvidence.obligation_instance_id == obligation_instance_id)
     return list(
         (
             await session.execute(
                 select(ObligationEvidence)
-                .where(
-                    ObligationEvidence.obligation_id == obligation_id,
-                    ObligationEvidence.organization_id == tenant.organization_id,
-                )
+                .where(*filters)
                 .order_by(ObligationEvidence.submitted_at, ObligationEvidence.id)
             )
         )
