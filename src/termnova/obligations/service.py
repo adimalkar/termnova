@@ -19,6 +19,7 @@ from termnova.db.models import (
     OrganizationMembership,
     StoredObject,
 )
+from termnova.obligations.policies import normalize_escalation_policy
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -103,7 +104,7 @@ class ObligationService:
             due_rule=fact.normalized_value.get("due_rule") or fact.due_rule,
             recurrence_rule=recurrence_rule,
             lead_time_days=lead_time_days,
-            escalation_policy=escalation_policy or {},
+            escalation_policy=normalize_escalation_policy(escalation_policy),
             business_unit=business_unit,
             status="active" if owner else "unassigned",
             priority=priority or self._priority_from_risk(fact.risk_level),

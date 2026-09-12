@@ -18,7 +18,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import Response as FileResponse
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from termnova.api.dependencies import get_db_session, get_settings, get_tenant_context
@@ -26,6 +26,7 @@ from termnova.config import Settings
 from termnova.db.models import (
     ClauseOccurrence,
     Obligation,
+    ObligationAlert,
     ObligationEvent,
     ObligationEvidence,
     ObligationInstance,
@@ -40,7 +41,10 @@ from termnova.obligations import (
     RecurringObligationService,
     StaleObligationRevisionError,
 )
+from termnova.obligations.automation import ObligationAutomationService
 from termnova.obligations.schemas import (
+    ObligationAlertListResponse,
+    ObligationAlertResponse,
     ObligationAssignmentRequest,
     ObligationCreateFromFactRequest,
     ObligationEventResponse,
@@ -203,6 +207,82 @@ async def list_obligations(
         offset=offset,
         obligations=[_response(obligation, evidence) for obligation, evidence in rows],
     )
+
+
+@router.get("/alerts", response_model=ObligationAlertListResponse)
+async def list_obligation_alerts(
+    status_filter: str | None = Query(default="ready", alias="status"),
+    alert_type: str | None = Query(default=None),
+    due_before: datetime | None = Query(default=None),
+    mine: bool = Query(default=True),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    tenant: TenantContext = Depends(get_tenant_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> ObligationAlertListResponse:
+    filters = [ObligationAlert.organization_id == tenant.organization_id]
+    if status_filter:
+        filters.append(ObligationAlert.status == status_filter)
+    if alert_type:
+        filters.append(ObligationAlert.alert_type == alert_type)
+    if due_before:
+        filters.append(ObligationAlert.due_at <= due_before)
+    may_view_all = tenant.allows("obligation:write") or "auditor" in tenant.roles
+    if mine or not may_view_all:
+        filters.append(
+            or_(
+                and_(
+                    ObligationAlert.target_role.is_(None),
+                    ObligationAlert.owner_membership_id == tenant.membership_id,
+                ),
+                ObligationAlert.target_role.in_(tenant.roles),
+            )
+        )
+    total = await session.scalar(select(func.count(ObligationAlert.id)).where(*filters)) or 0
+    alerts = list(
+        (
+            await session.scalars(
+                select(ObligationAlert)
+                .where(*filters)
+                .order_by(ObligationAlert.scheduled_for, ObligationAlert.id)
+                .offset(offset)
+                .limit(limit)
+            )
+        ).all()
+    )
+    return ObligationAlertListResponse(
+        total=total,
+        limit=limit,
+        offset=offset,
+        alerts=[ObligationAlertResponse.model_validate(item) for item in alerts],
+    )
+
+
+@router.post(
+    "/alerts/{alert_id}/acknowledgements",
+    response_model=ObligationAlertResponse,
+    dependencies=[Depends(require_permission("obligation:act"))],
+)
+async def acknowledge_obligation_alert(
+    alert_id: uuid.UUID,
+    payload: ObligationRevisionRequest,
+    tenant: TenantContext = Depends(get_tenant_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> ObligationAlertResponse:
+    try:
+        alert = await ObligationAutomationService(session, tenant.organization_id).acknowledge(
+            alert_id,
+            expected_revision=payload.expected_revision,
+            actor_membership_id=tenant.membership_id,
+            actor_subject=tenant.subject,
+            actor_roles=tenant.roles,
+            may_manage=tenant.allows("obligation:write"),
+        )
+    except (LookupError, ValueError, StaleObligationRevisionError, ObligationAccessError) as exc:
+        raise _mutation_error(exc) from exc
+    await session.commit()
+    await session.refresh(alert)
+    return ObligationAlertResponse.model_validate(alert)
 
 
 @router.get("/{obligation_id}", response_model=ObligationResponse)
