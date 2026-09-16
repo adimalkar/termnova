@@ -5,9 +5,11 @@ import uuid
 from pathlib import Path
 
 import structlog
+from sqlalchemy import select, update
 
 from termnova.config import get_settings
 from termnova.db.connection import create_async_engine
+from termnova.db.models import ConnectorSourceItem, DocumentVersion
 from termnova.facts import ContractFactExtractor
 from termnova.lifecycle import VersionLifecycleService
 from termnova.operations.jobs import mark_job_completed, mark_job_failed, mark_job_started
@@ -67,6 +69,12 @@ def ingest_document_task(
                     if version_analysis is not None
                     else []
                 )
+                if version_analysis is not None:
+                    await session.execute(
+                        update(ConnectorSourceItem)
+                        .where(ConnectorSourceItem.latest_version_id == version_analysis.version_id)
+                        .values(status="current")
+                    )
                 await mark_job_completed(session, job_id)
                 await session.commit()
                 try:
@@ -104,6 +112,17 @@ def ingest_document_task(
                     final=self.request.retries >= self.max_retries,
                 )
                 await VersionLifecycleService(session).mark_failed(document_id)
+                await session.execute(
+                    update(ConnectorSourceItem)
+                    .where(
+                        ConnectorSourceItem.latest_version_id.in_(
+                            select(DocumentVersion.id).where(
+                                DocumentVersion.document_id == document_id
+                            )
+                        )
+                    )
+                    .values(status="failed")
+                )
                 from termnova.db.repository import ContractRepository
 
                 await ContractRepository(session).update_document_status(
