@@ -1,9 +1,10 @@
 """Pydantic schemas for contract knowledge graph, entities, and D3.js visualization."""
 
 import uuid
-from typing import Any
+from datetime import date, datetime
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ExtractedParty(BaseModel):
@@ -165,3 +166,125 @@ class DocumentRelationshipResponse(BaseModel):
     target_filename: str
     relationship_type: str
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+FamilyRole = Literal["msa", "sow", "dpa", "order_form", "amendment", "addendum", "other"]
+FamilyRelationshipType = Literal[
+    "root", "governed_by", "amends", "supersedes", "addendum_to", "annex_to", "renewal_of"
+]
+
+
+class CreateContractFamilyRequest(BaseModel):
+    """Create a stable family around a root agreement's logical identity."""
+
+    root_document_id: uuid.UUID
+    name: str | None = Field(default=None, max_length=500)
+
+
+class AddContractFamilyMemberRequest(BaseModel):
+    """Attach a version-independent agreement with explicit precedence and scope."""
+
+    document_id: uuid.UUID
+    role: FamilyRole
+    relationship_type: FamilyRelationshipType
+    parent_document_id: uuid.UUID | None = None
+    precedence: int | None = Field(default=None, ge=0, le=1000)
+    applies_to: list[str] = Field(default_factory=list, max_length=100)
+    effective_from: date | None = None
+    effective_to: date | None = None
+
+    @model_validator(mode="after")
+    def validate_effective_period(self):
+        if self.effective_from and self.effective_to and self.effective_to < self.effective_from:
+            raise ValueError("effective_to must be on or after effective_from")
+        if self.relationship_type == "root":
+            raise ValueError("root memberships are created with the family")
+        return self
+
+
+class UpdateContractFamilyMemberRequest(BaseModel):
+    """Change a member's governing precedence, scope, dates, or active state."""
+
+    precedence: int | None = Field(default=None, ge=0, le=1000)
+    applies_to: list[str] | None = Field(default=None, max_length=100)
+    effective_from: date | None = None
+    effective_to: date | None = None
+    status: Literal["active", "inactive"] | None = None
+
+    @model_validator(mode="after")
+    def validate_update(self):
+        if not self.model_fields_set:
+            raise ValueError("At least one membership field is required")
+        if self.effective_from and self.effective_to and self.effective_to < self.effective_from:
+            raise ValueError("effective_to must be on or after effective_from")
+        return self
+
+
+class ContractFamilyMemberResponse(BaseModel):
+    membership_id: uuid.UUID
+    logical_document_id: uuid.UUID
+    document_id: uuid.UUID
+    document_version_id: uuid.UUID
+    version_number: int
+    filename: str
+    title: str
+    role: str
+    relationship_type: str
+    parent_logical_document_id: uuid.UUID | None = None
+    precedence: int
+    applies_to: list[str] = Field(default_factory=list)
+    effective_from: date | None = None
+    effective_to: date | None = None
+    status: str
+
+
+class FamilyTermEvidence(BaseModel):
+    document_id: uuid.UUID
+    filename: str
+    document_version_id: uuid.UUID
+    version_number: int
+    clause_occurrence_id: uuid.UUID
+    page_number: int | None = None
+    heading: str | None = None
+    source_text: str
+    language_tag: str
+
+
+class FamilyTermCandidate(BaseModel):
+    fact_id: uuid.UUID
+    membership_id: uuid.UUID
+    term_key: str
+    fact_type: str
+    display_value: str
+    normalized_value: dict[str, Any]
+    verification_status: str
+    confidence: float
+    role: str
+    precedence: int
+    evidence: FamilyTermEvidence
+
+
+class EffectiveFamilyTerm(BaseModel):
+    term_key: str
+    fact_type: str
+    status: Literal["sole", "consistent", "resolved_by_precedence", "conflict"]
+    effective: FamilyTermCandidate | None = None
+    alternatives: list[FamilyTermCandidate] = Field(default_factory=list)
+
+
+class FamilyTermConflict(BaseModel):
+    term_key: str
+    fact_type: str
+    reason: str
+    candidates: list[FamilyTermCandidate]
+
+
+class ContractFamilyIntelligenceResponse(BaseModel):
+    family_id: uuid.UUID
+    name: str
+    root_logical_document_id: uuid.UUID
+    as_of: date
+    generated_at: datetime
+    members: list[ContractFamilyMemberResponse]
+    effective_terms: list[EffectiveFamilyTerm]
+    conflicts: list[FamilyTermConflict]

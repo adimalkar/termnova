@@ -382,6 +382,226 @@
   color: var(--text-secondary);
 }
 
+/* ──── Contract Family Intelligence ──── */
+.family-setup-banner,
+.family-control-header,
+.family-section-heading,
+.family-add-form,
+.family-member-card > div,
+.family-term-title,
+.family-conflict-card > div {
+  display: flex;
+  align-items: center;
+}
+
+.family-setup-banner {
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 18px;
+  margin-bottom: 20px;
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  background: rgba(234, 179, 8, 0.08);
+}
+
+.family-setup-banner div {
+  display: grid;
+  gap: 4px;
+}
+
+.family-setup-banner span,
+.family-control-header p,
+.family-section-heading p,
+.family-member-card p,
+.family-member-card small,
+.family-conflict-card p,
+.family-source-line {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.family-control-view {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+  max-width: 1240px;
+  margin: 0 auto;
+}
+
+.family-control-header {
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px;
+  color: var(--on-paper);
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface);
+}
+
+.family-control-header h3 {
+  margin: 5px 0;
+  font-size: 1.25rem;
+}
+
+.family-eyebrow {
+  color: #d6a91d;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.family-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(86px, 1fr));
+  gap: 8px;
+}
+
+.family-metrics span {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-hairline);
+  text-align: center;
+  font-size: 0.7rem;
+}
+
+.family-metrics strong {
+  color: var(--on-paper);
+  font-size: 1.15rem;
+}
+
+.family-metrics .family-metric-danger,
+.family-metrics .family-metric-danger strong {
+  color: #ef4444;
+}
+
+.family-panel {
+  padding: 20px;
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface);
+}
+
+.family-panel-alert {
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.family-section-heading {
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.family-section-heading h4,
+.family-section-heading p {
+  margin: 0;
+}
+
+.family-section-heading h4 {
+  color: var(--on-paper);
+  font-size: 0.95rem;
+}
+
+.family-member-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.family-member-card,
+.family-term-card,
+.family-conflict-card {
+  padding: 14px;
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.025));
+}
+
+.family-member-card > div {
+  gap: 9px;
+}
+
+.family-member-card p {
+  margin: 8px 0 3px;
+  text-transform: capitalize;
+}
+
+.family-add-form {
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.family-add-form select {
+  min-width: 0;
+  padding: 8px 10px;
+  color: var(--on-paper);
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface);
+}
+
+.family-term-list,
+.family-conflict-card > div {
+  display: grid;
+  gap: 10px;
+}
+
+.family-term-title {
+  justify-content: space-between;
+  gap: 12px;
+  text-transform: capitalize;
+}
+
+.family-term-title span {
+  color: #d6a91d;
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.family-term-value {
+  margin-top: 9px;
+  color: var(--on-paper);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.family-term-card blockquote {
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  color: var(--text-secondary);
+  border-left: 3px solid #d6a91d;
+  background: rgba(234, 179, 8, 0.05);
+  font-size: 0.78rem;
+}
+
+.family-term-conflict,
+.family-conflict-card {
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.family-conflict-card > div {
+  margin-top: 10px;
+}
+
+.family-conflict-card > div > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  color: var(--on-paper);
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  font-size: 0.76rem;
+}
+
+.family-clear-state {
+  padding: 14px;
+  color: var(--text-secondary);
+  border: 1px dashed var(--border-hairline);
+  text-align: center;
+  font-size: 0.8rem;
+}
+
 /* ──── Mobile & Tablet Responsiveness for Knowledge Graph ──── */
 @media screen and (max-width: 1024px) {
   .graph-drawer {
@@ -434,6 +654,21 @@
   .node-meta-grid {
     grid-template-columns: 1fr 1fr;
     gap: 8px;
+  }
+
+  .family-control-view {
+    padding: 12px;
+  }
+
+  .family-control-header,
+  .family-setup-banner,
+  .family-add-form {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .family-metrics {
+    width: 100%;
   }
 }
 
