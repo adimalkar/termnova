@@ -560,10 +560,16 @@ class ContractFamilyMembership(TenantOwned, Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     family_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("contract_families.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("contract_families.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     logical_document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("logical_documents.id", ondelete="RESTRICT"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("logical_documents.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
     )
     parent_logical_document_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("logical_documents.id", ondelete="RESTRICT"), nullable=True
