@@ -450,18 +450,28 @@ async function loadDocumentStack(documentId) {
   const container = document.getElementById('stack-container');
   if (!container) return;
 
-  container.innerHTML = '<div style="padding:24px; text-align:center;">Loading hierarchical stack...</div>';
+  container.innerHTML = '<div style="padding:24px; text-align:center;">Resolving contract family...</div>';
 
   try {
-    const stackData = await apiRequest(`/api/v1/graph/stack/${documentId}`);
-    renderDocumentStackView(stackData, container);
+    const familyData = await apiRequest(`/api/v1/graph/families/by-document/${documentId}`);
+    renderContractFamilyView(familyData, container);
   } catch (err) {
-    console.error('Failed to load document stack:', err);
-    container.innerHTML = `<div class="empty-state" style="padding: 30px; text-align: center;">Failed to load stack: ${err.message}</div>`;
+    if (String(err.message || '').includes('No active contract family')) {
+      try {
+        const stackData = await apiRequest(`/api/v1/graph/stack/${documentId}`);
+        renderDocumentStackView(stackData, container, documentId);
+      } catch (stackErr) {
+        console.error('Failed to load document stack:', stackErr);
+        container.innerHTML = `<div class="empty-state" style="padding: 30px; text-align: center;">Failed to load stack: ${escapeHtml(stackErr.message)}</div>`;
+      }
+      return;
+    }
+    console.error('Failed to load contract family:', err);
+    container.innerHTML = `<div class="empty-state" style="padding: 30px; text-align: center;">Failed to load family intelligence: ${escapeHtml(err.message)}</div>`;
   }
 }
 
-function renderDocumentStackView(stackData, container) {
+function renderDocumentStackView(stackData, container, documentId) {
   const root = stackData.stack;
   if (!root) return;
 
@@ -475,6 +485,13 @@ function renderDocumentStackView(stackData, container) {
   container.innerHTML = `
     <div class="stack-view-container">
       <div class="stack-tree-wrapper">
+        <div class="family-setup-banner">
+          <div>
+            <strong>This is an ungoverned document stack.</strong>
+            <span>Create a stable family to resolve amendments, controlling terms, and conflicts across future versions.</span>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="createContractFamily('${encodeURIComponent(documentId)}')">Create governed family</button>
+        </div>
         <div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
           <div>
             <h3 style="font-size: 1.1rem; font-weight: 700; color: var(--on-paper);">Stack: ${rootFilenameEsc}</h3>
@@ -532,6 +549,161 @@ function renderDocumentStackView(stackData, container) {
       </div>
     </div>
   `;
+}
+
+async function createContractFamily(documentId) {
+  try {
+    const familyData = await apiRequest('/api/v1/graph/families', {
+      method: 'POST',
+      body: JSON.stringify({ root_document_id: documentId }),
+    });
+    renderContractFamilyView(familyData, document.getElementById('stack-container'));
+    if (window.showToast) window.showToast('Governed contract family created', 'success');
+  } catch (err) {
+    if (window.showToast) window.showToast(`Could not create family: ${err.message}`, 'error');
+  }
+}
+
+function renderContractFamilyView(familyData, container) {
+  if (!container) return;
+  const members = familyData.members || [];
+  const effectiveTerms = familyData.effective_terms || [];
+  const conflicts = familyData.conflicts || [];
+  const memberOptions = (graphState.rawGraphData?.nodes || [])
+    .filter((node) => node.document_id && !members.some((member) => member.document_id === node.document_id))
+    .map((node) => `<option value="${escapeHtml(node.document_id)}">${escapeHtml(node.label)}</option>`)
+    .join('');
+
+  container.innerHTML = `
+    <div class="family-control-view">
+      <header class="family-control-header">
+        <div>
+          <span class="family-eyebrow">Effective agreement control</span>
+          <h3>${escapeHtml(familyData.name)}</h3>
+          <p>As of ${escapeHtml(familyData.as_of)} · only approved or corrected facts determine effective terms.</p>
+        </div>
+        <div class="family-metrics">
+          <span><strong>${members.length}</strong> agreements</span>
+          <span><strong>${effectiveTerms.length}</strong> terms</span>
+          <span class="${conflicts.length ? 'family-metric-danger' : ''}"><strong>${conflicts.length}</strong> conflicts</span>
+        </div>
+      </header>
+
+      <section class="family-panel">
+        <div class="family-section-heading">
+          <div><h4>Agreement hierarchy</h4><p>Membership survives uploads of new document versions.</p></div>
+        </div>
+        <div class="family-member-grid">
+          ${members.map(renderFamilyMember).join('') || '<p class="text-muted">No active agreements.</p>'}
+        </div>
+        ${memberOptions ? `
+          <form class="family-add-form" id="family-add-member-form">
+            <select id="family-member-document" required><option value="">Select a linked agreement</option>${memberOptions}</select>
+            <select id="family-member-role" required>
+              <option value="sow">SOW</option><option value="order_form">Order form</option>
+              <option value="dpa">DPA</option><option value="amendment">Amendment</option>
+              <option value="addendum">Addendum</option><option value="other">Other</option>
+            </select>
+            <select id="family-member-relationship" required>
+              <option value="governed_by">Governed by</option><option value="amends">Amends</option>
+              <option value="supersedes">Supersedes</option><option value="addendum_to">Addendum to</option>
+              <option value="annex_to">Annex to</option><option value="renewal_of">Renewal of</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" type="submit">Add agreement</button>
+          </form>` : ''}
+      </section>
+
+      <section class="family-panel ${conflicts.length ? 'family-panel-alert' : ''}">
+        <div class="family-section-heading">
+          <div><h4>Conflict desk</h4><p>Equal-precedence verified provisions that need a controlling decision.</p></div>
+          <span class="badge ${conflicts.length ? 'badge-danger' : 'badge-subtle'}">${conflicts.length} open</span>
+        </div>
+        ${conflicts.length ? conflicts.map((conflict) => renderFamilyConflict(conflict, familyData.family_id)).join('') : '<div class="family-clear-state">No unresolved controlling-term conflicts.</div>'}
+      </section>
+
+      <section class="family-panel">
+        <div class="family-section-heading"><div><h4>Effective terms</h4><p>Current answer, precedence path, and exact source evidence.</p></div></div>
+        <div class="family-term-list">
+          ${effectiveTerms.map(renderEffectiveTerm).join('') || '<div class="family-clear-state">Approve extracted facts to populate effective terms.</div>'}
+        </div>
+      </section>
+    </div>`;
+
+  document.getElementById('family-add-member-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const documentId = document.getElementById('family-member-document').value;
+    const role = document.getElementById('family-member-role').value;
+    const relationshipType = document.getElementById('family-member-relationship').value;
+    try {
+      const updated = await apiRequest(`/api/v1/graph/families/${familyData.family_id}/members`, {
+        method: 'POST',
+        body: JSON.stringify({
+          document_id: documentId,
+          role,
+          relationship_type: relationshipType,
+        }),
+      });
+      renderContractFamilyView(updated, container);
+      if (window.showToast) window.showToast('Agreement added to family', 'success');
+    } catch (err) {
+      if (window.showToast) window.showToast(`Could not add agreement: ${err.message}`, 'error');
+    }
+  });
+
+  container.querySelectorAll('.family-control-choice').forEach((button) => {
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        const updated = await apiRequest(
+          `/api/v1/graph/families/${familyData.family_id}/members/${button.dataset.membershipId}`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({ precedence: Number(button.dataset.precedence) + 1 }),
+          }
+        );
+        renderContractFamilyView(updated, container);
+        if (window.showToast) window.showToast('Controlling provision selected', 'success');
+      } catch (err) {
+        button.disabled = false;
+        if (window.showToast) window.showToast(`Could not resolve conflict: ${err.message}`, 'error');
+      }
+    });
+  });
+}
+
+function renderFamilyMember(member) {
+  const scope = member.applies_to?.length ? member.applies_to.join(', ') : 'All extracted terms';
+  return `<article class="family-member-card">
+    <div><span class="type-tag tag-${escapeHtml(member.role)}">${escapeHtml(member.role).toUpperCase()}</span><strong>${escapeHtml(member.title)}</strong></div>
+    <p>${escapeHtml(member.relationship_type.replaceAll('_', ' '))} · v${member.version_number} · precedence ${member.precedence}</p>
+    <small>${escapeHtml(scope)}</small>
+  </article>`;
+}
+
+function renderEffectiveTerm(term) {
+  if (!term.effective) {
+    return `<article class="family-term-card family-term-conflict"><div><strong>${escapeHtml(term.fact_type)}</strong><span>Conflict</span></div><p>Resolve the conflict above before relying on this term.</p></article>`;
+  }
+  const candidate = term.effective;
+  const evidence = candidate.evidence;
+  const page = evidence.page_number ? `page ${evidence.page_number}` : 'page unavailable';
+  return `<article class="family-term-card">
+    <div class="family-term-title"><strong>${escapeHtml(term.fact_type.replaceAll('_', ' '))}</strong><span>${escapeHtml(term.status.replaceAll('_', ' '))}</span></div>
+    <div class="family-term-value">${escapeHtml(candidate.display_value)}</div>
+    <p class="family-source-line">${escapeHtml(evidence.filename)} · ${escapeHtml(page)} · precedence ${candidate.precedence}${term.alternatives.length ? ` · overrides ${term.alternatives.length}` : ''}</p>
+    <blockquote>${escapeHtml(evidence.source_text)}</blockquote>
+  </article>`;
+}
+
+function renderFamilyConflict(conflict, familyId) {
+  return `<article class="family-conflict-card">
+    <strong>${escapeHtml(conflict.fact_type.replaceAll('_', ' '))}</strong>
+    <p>${escapeHtml(conflict.reason)}</p>
+    <div>${conflict.candidates.map((candidate) => `<span>
+      <span>${escapeHtml(candidate.display_value)} · ${escapeHtml(candidate.evidence.filename)} p.${escapeHtml(candidate.evidence.page_number || '—')}</span>
+      <button class="btn btn-secondary btn-sm family-control-choice" type="button" data-family-id="${escapeHtml(familyId)}" data-membership-id="${escapeHtml(candidate.membership_id)}" data-precedence="${candidate.precedence}">Set as controlling</button>
+    </span>`).join('')}</div>
+  </article>`;
 }
 
 // ──── Export Graph as SVG ────

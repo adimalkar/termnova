@@ -1,7 +1,7 @@
 """SQLAlchemy 2.0 declarative ORM models for Termnova."""
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -10,6 +10,7 @@ from sqlalchemy import (
     ARRAY,
     BigInteger,
     Boolean,
+    CheckConstraint,
     Computed,
     DateTime,
     Float,
@@ -497,6 +498,91 @@ class ContractFact(TenantOwned, Base):
     fact_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     verification_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class ContractFamily(TenantOwned, Base):
+    """Stable group of related agreements across immutable document revisions."""
+
+    __tablename__ = "contract_families"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "root_logical_document_id", name="uq_org_contract_family_root"
+        ),
+        CheckConstraint("status IN ('active', 'archived')", name="ck_contract_family_status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(500), nullable=False)
+    root_logical_document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("logical_documents.id", ondelete="RESTRICT"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class ContractFamilyMembership(TenantOwned, Base):
+    """Version-independent family role, precedence, scope, and effective period."""
+
+    __tablename__ = "contract_family_memberships"
+    __table_args__ = (
+        UniqueConstraint("family_id", "logical_document_id", name="uq_contract_family_member"),
+        Index(
+            "uq_active_contract_family_logical_document",
+            "organization_id",
+            "logical_document_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+        CheckConstraint("precedence >= 0", name="ck_contract_family_precedence"),
+        CheckConstraint(
+            "effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from",
+            name="ck_contract_family_effective_period",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'inactive')", name="ck_contract_family_member_status"
+        ),
+        CheckConstraint(
+            "parent_logical_document_id IS NULL OR parent_logical_document_id <> logical_document_id",
+            name="ck_contract_family_parent_not_self",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    family_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("contract_families.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    logical_document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("logical_documents.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    parent_logical_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("logical_documents.id", ondelete="RESTRICT"), nullable=True
+    )
+    role: Mapped[str] = mapped_column(String(40), nullable=False)
+    relationship_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    precedence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    applies_to: Mapped[list[str]] = mapped_column(
+        ARRAY(String), default=list, server_default="{}", nullable=False
+    )
+    effective_from: Mapped[date | None] = mapped_column(nullable=True)
+    effective_to: Mapped[date | None] = mapped_column(nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

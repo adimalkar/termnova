@@ -1,6 +1,7 @@
 """Contract Knowledge Graph & Interactive Topology API endpoints."""
 
 import uuid
+from datetime import date
 from typing import Any
 
 import structlog
@@ -11,16 +12,25 @@ from termnova.api.dependencies import get_db, get_settings
 from termnova.config import Settings
 from termnova.db.models import Document
 from termnova.graph.builder import GraphBuilder
+from termnova.graph.family import ContractFamilyService, FamilyConflictError
 from termnova.graph.schemas import (
+    AddContractFamilyMemberRequest,
+    ContractFamilyIntelligenceResponse,
+    CreateContractFamilyRequest,
     CreateRelationshipRequest,
     DocumentRelationshipResponse,
     DocumentStack,
     EntityListResponse,
     GraphData,
+    UpdateContractFamilyMemberRequest,
 )
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/graph", tags=["Knowledge Graph"])
+
+
+def _actor_subject(session: AsyncSession) -> str:
+    return str(session.info.get("actor_subject") or "unknown")
 
 
 @router.get("/visualize", response_model=GraphData)
@@ -56,6 +66,136 @@ async def get_document_stack_view(
         return await builder.get_document_stack(doc_id)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.post(
+    "/families",
+    response_model=ContractFamilyIntelligenceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_contract_family(
+    request: CreateContractFamilyRequest,
+    session: AsyncSession = Depends(get_db),
+) -> ContractFamilyIntelligenceResponse:
+    """Create a stable agreement family rooted in a logical document."""
+    service = ContractFamilyService(session)
+    try:
+        family = await service.create_family(
+            request.root_document_id,
+            name=request.name,
+            actor_subject=_actor_subject(session),
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except FamilyConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    await session.commit()
+    return await service.get_intelligence(family.id)
+
+
+@router.post(
+    "/families/{family_id}/members",
+    response_model=ContractFamilyIntelligenceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_contract_family_member(
+    family_id: uuid.UUID,
+    request: AddContractFamilyMemberRequest,
+    session: AsyncSession = Depends(get_db),
+) -> ContractFamilyIntelligenceResponse:
+    """Attach a related agreement with precedence, scope, and effective dates."""
+    service = ContractFamilyService(session)
+    try:
+        await service.add_member(
+            family_id,
+            document_id=request.document_id,
+            role=request.role,
+            relationship_type=request.relationship_type,
+            parent_document_id=request.parent_document_id,
+            precedence=request.precedence,
+            applies_to=request.applies_to,
+            effective_from=request.effective_from,
+            effective_to=request.effective_to,
+            actor_subject=_actor_subject(session),
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except FamilyConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    await session.commit()
+    return await service.get_intelligence(family_id)
+
+
+@router.patch(
+    "/families/{family_id}/members/{membership_id}",
+    response_model=ContractFamilyIntelligenceResponse,
+)
+async def update_contract_family_member(
+    family_id: uuid.UUID,
+    membership_id: uuid.UUID,
+    request: UpdateContractFamilyMemberRequest,
+    session: AsyncSession = Depends(get_db),
+) -> ContractFamilyIntelligenceResponse:
+    """Update governing scope or precedence and recompute effective terms."""
+    service = ContractFamilyService(session)
+    try:
+        await service.update_member(
+            family_id,
+            membership_id,
+            precedence=request.precedence,
+            applies_to=request.applies_to,
+            effective_from=request.effective_from,
+            effective_to=request.effective_to,
+            status=request.status,
+            provided_fields=set(request.model_fields_set),
+            actor_subject=_actor_subject(session),
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except FamilyConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    await session.commit()
+    return await service.get_intelligence(family_id)
+
+
+@router.get(
+    "/families/{family_id}/intelligence",
+    response_model=ContractFamilyIntelligenceResponse,
+)
+async def get_contract_family_intelligence(
+    family_id: uuid.UUID,
+    as_of: date | None = Query(default=None),
+    include_pending: bool = Query(default=False),
+    session: AsyncSession = Depends(get_db),
+) -> ContractFamilyIntelligenceResponse:
+    """Resolve current verified terms and surface unresolved family conflicts."""
+    try:
+        return await ContractFamilyService(session).get_intelligence(
+            family_id, as_of=as_of, include_pending=include_pending
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/families/by-document/{document_id}",
+    response_model=ContractFamilyIntelligenceResponse,
+)
+async def get_contract_family_by_document(
+    document_id: uuid.UUID,
+    as_of: date | None = Query(default=None),
+    include_pending: bool = Query(default=False),
+    session: AsyncSession = Depends(get_db),
+) -> ContractFamilyIntelligenceResponse:
+    """Find a document's active family and return its effective-term control view."""
+    service = ContractFamilyService(session)
+    try:
+        family = await service.family_for_document(document_id)
+        return await service.get_intelligence(
+            family.id, as_of=as_of, include_pending=include_pending
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.get("/documents/{doc_id}/relationships", response_model=list[DocumentRelationshipResponse])
