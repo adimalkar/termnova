@@ -73,6 +73,10 @@ class ConnectorSyncService:
             cursor_before=connection.sync_cursor,
             status="running",
             counts={},
+            # PostgreSQL now() is fixed for the whole transaction. Connector
+            # audit runs can share a transaction during replay and still need
+            # an accurate chronological order.
+            started_at=datetime.now(UTC),
         )
         self.session.add(run)
         await self.session.flush()
