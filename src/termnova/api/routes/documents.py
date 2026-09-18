@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import io
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,6 +28,8 @@ from termnova.api.dependencies import (
     get_tenant_context,
 )
 from termnova.api.schemas import (
+    BulkUploadItemResponse,
+    BulkUploadResponse,
     DocumentListResponse,
     DocumentResponse,
     TaskStatusResponse,
@@ -45,6 +48,7 @@ from termnova.db.repository import ContractRepository
 from termnova.language import detect_language
 from termnova.operations.jobs import create_ingestion_job, mark_outbox_published
 from termnova.pipeline.celery_app import celery_app
+from termnova.security.archive import read_safe_archive
 from termnova.security.intake import MalwareScanner, validate_content_type
 from termnova.security.tenancy import TenantContext, record_audit_event, require_permission
 from termnova.storage import DocumentStorage
@@ -281,6 +285,74 @@ async def upload_contract(
         status="pending",
         task_id=job.task_id,
         message="Contract stored and queued for background parsing and indexing.",
+    )
+
+
+@router.post(
+    "/bulk-upload",
+    response_model=BulkUploadResponse,
+    status_code=status.HTTP_207_MULTI_STATUS,
+    dependencies=[Depends(require_permission("document:write"))],
+)
+async def bulk_upload_contracts(
+    archive: UploadFile = File(...),
+    tenant: TenantContext = Depends(get_tenant_context),
+    session: AsyncSession = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> BulkUploadResponse:
+    """Safely inventory a ZIP and enqueue each supported contract with per-file results."""
+    content = await archive.read()
+    if len(content) > settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="ZIP archive exceeds the upload size limit")
+    try:
+        entries = read_safe_archive(
+            content,
+            allowed_extensions=ALLOWED_EXTENSIONS,
+            max_files=settings.MAX_BULK_FILES,
+            max_uncompressed_bytes=settings.MAX_BULK_UNCOMPRESSED_MB * 1024 * 1024,
+            max_compression_ratio=settings.MAX_ZIP_COMPRESSION_RATIO,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    results: list[BulkUploadItemResponse] = []
+    for entry in entries:
+        upload = UploadFile(file=io.BytesIO(entry.content), filename=entry.filename)
+        try:
+            response = await upload_contract(
+                file=upload,
+                logical_document_id=None,
+                connector_source_item_id=None,
+                source_system="bulk-zip",
+                source_revision=None,
+                tenant=tenant,
+                session=session,
+                settings=settings,
+            )
+            results.append(
+                BulkUploadItemResponse(
+                    filename=entry.filename,
+                    status="accepted",
+                    document_id=response.document_id,
+                    logical_document_id=response.logical_document_id,
+                    document_version_id=response.document_version_id,
+                    task_id=response.task_id,
+                )
+            )
+        except HTTPException as exc:
+            results.append(
+                BulkUploadItemResponse(
+                    filename=entry.filename,
+                    status="rejected",
+                    detail=str(exc.detail),
+                )
+            )
+        finally:
+            await upload.close()
+    rejected = sum(item.status == "rejected" for item in results)
+    return BulkUploadResponse(
+        accepted=len(results) - rejected,
+        rejected=rejected,
+        items=results,
     )
 
 
