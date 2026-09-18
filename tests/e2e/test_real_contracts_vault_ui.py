@@ -9,7 +9,7 @@ from httpx import AsyncClient
 async def test_real_contracts_vault_and_sidebar_rendering(api_client: AsyncClient):
     """Verify that dashboard renders the dynamic Indexed Vault sidebar and Document Vault."""
     # 1. Fetch homepage HTML
-    resp_home = await api_client.get("/")
+    resp_home = await api_client.get("/app")
     assert resp_home.status_code == 200
     html = resp_home.text
 
