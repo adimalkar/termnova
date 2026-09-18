@@ -50,7 +50,7 @@
   <link rel="stylesheet" href="/static/css/graph.css?v=0.4.2">
   <link rel="stylesheet" href="/static/css/workspace.css?v=0.4.2">
   <link rel="stylesheet" href="/static/css/inbox.css?v=0.4.2">
-  <link rel="stylesheet" href="/static/css/negotiation.css?v=0.4.2">
+  <link rel="stylesheet" href="/static/css/negotiation.css?v=0.4.3">
   <link rel="stylesheet" href="/static/css/intelligence.css?v=0.4.2">
   <link rel="stylesheet" href="/static/css/desk.css?v=0.4.2">
   <style>
@@ -782,6 +782,10 @@
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
               <span>This round vs last</span>
             </button>
+            <button class="neg-tab-btn" data-tab="playbook">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+              <span>Playbook check</span>
+            </button>
             <button class="neg-tab-btn" data-tab="summary">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
               <span>For the partner</span>
@@ -793,6 +797,7 @@
           <div id="neg-tab-concessions" class="neg-tab-pane" style="display: none;"></div>
           <div id="neg-tab-risk" class="neg-tab-pane" style="display: none;"></div>
           <div id="neg-tab-diff" class="neg-tab-pane" style="display: none;"></div>
+          <div id="neg-tab-playbook" class="neg-tab-pane" style="display: none;"></div>
           <div id="neg-tab-summary" class="neg-tab-pane" style="display: none;"></div>
         </div>
       </section>
@@ -1604,7 +1609,7 @@
   <script src="/static/js/ws.js?v=0.4.2"></script>
   <script src="/static/js/workspace.js?v=0.4.2"></script>
   <script src="/static/js/inbox.js?v=0.4.2"></script>
-  <script src="/static/js/negotiation.js?v=0.4.2"></script>
+  <script src="/static/js/negotiation.js?v=0.4.3"></script>
   <script src="/static/js/intelligence.js?v=0.4.2"></script>
   <script src="/static/js/graph.js?v=0.4.2"></script>
   <script src="/static/js/compare.js?v=0.4.2"></script>
