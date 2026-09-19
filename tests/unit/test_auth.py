@@ -310,11 +310,11 @@ def test_openapi_marks_every_business_operation_as_protected():
     # same-origin browser trades the service key for a cookie, so it cannot itself
     # require an established principal. APIAuthenticationMiddleware still gates every
     # other method on that path.
-    session_exchange = "/api/v1/auth/session"
+    public_auth_paths = {"/api/v1/auth/session", "/api/v1/auth/options"}
     operations = [
         operation
         for path, path_item in schema["paths"].items()
-        if path.startswith("/api/v1/") and path != session_exchange
+        if path.startswith("/api/v1/") and path not in public_auth_paths
         for method, operation in path_item.items()
         if method in {"get", "post", "put", "patch", "delete"}
     ]
@@ -324,4 +324,4 @@ def test_openapi_marks_every_business_operation_as_protected():
         assert {"OIDC Bearer": []} in operation["security"]
         assert {"Service API Key": []} in operation["security"]
 
-    assert session_exchange in schema["paths"]
+    assert public_auth_paths <= schema["paths"].keys()

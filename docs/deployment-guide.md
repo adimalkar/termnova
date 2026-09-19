@@ -127,15 +127,22 @@ Railway automatically detects the [`railway.json`](../railway.json) and `Dockerf
 | `OIDC_JWKS_URL` | URL | discovery | Optional explicit HTTPS JWKS endpoint |
 | `OIDC_ORGANIZATION_CLAIM` | string | `org_id` | Required token claim carrying external organization identity |
 | `OIDC_ROLES_CLAIM` | string | `roles` | Token claim carrying roles for later membership-backed authorization |
-| `API_KEY` | secret | - | Interim service-account key used only in `api_key` mode; minimum 24 characters |
+| `OIDC_BROWSER_LOGIN_ENABLED` | bool | `false` | Enable hosted browser sign-in with Authorization Code + PKCE |
+| `OIDC_CLIENT_ID` | string | - | Browser OIDC client identifier |
+| `OIDC_CLIENT_SECRET` | secret | - | Optional confidential-client secret used only by the server-side token exchange |
+| `OIDC_REDIRECT_URI` | URL | - | Exact HTTPS callback registered at the provider |
+| `SESSION_SECRET` | secret | - | Independent 32+ character key for signed, short-lived login state |
+| `OIDC_SELF_SIGNUP_ENABLED` | bool | `false` | Create one isolated personal organization per verified new identity |
+| `OIDC_AUTO_PROVISION_USERS` | bool | `false` | Add verified users to the configured default organization |
+| `OIDC_DEFAULT_ORGANIZATION_ID` | string | - | Existing organization eligible for controlled auto-provisioning |
+| `API_KEY` | secret | - | Interim service-account key used only in `api_key` mode; minimum 32 characters |
 | `LLM_PROVIDER` | string | `opencode` | Primary provider backend (`opencode`, `openrouter`, `openai`, `bedrock`, `ollama`, `mock`) |
 | `OPENCODE_API_KEY` | string | - | OpenCode provider credential |
 | `OPENCODE_BASE_URL` | string | `https://opencode.ai/zen/go/v1` | OpenCode Go OpenAI-compatible base URL |
 | `OPENROUTER_API_KEY`| string | - | Shared credential for OpenRouter fallback and embedding requests |
 | `OPENAI_API_KEY` | string | - | OpenAI API key (optional fallback) |
-| `REQUIRE_AUTH` | bool | `false` | Require the API key or a signed browser session; must be `true` in production |
-| `API_KEY` | secret | - | At least 32 characters; API clients send it in `X-API-Key` and UI operators enter it on the unlock screen |
-| `BROWSER_SESSION_TTL_SECONDS` | int | `28800` | Lifetime of the signed HttpOnly browser session cookie (5 minutes to 24 hours) |
+| `REQUIRE_AUTH` | bool | `false` | Legacy switch that maps disabled auth to `api_key`; prefer explicit `AUTH_MODE` |
+| `BROWSER_SESSION_TTL_SECONDS` | int | `28800` | Lifetime of an HttpOnly browser session (5 minutes to 24 hours) |
 | `AWS_REGION` | string | `us-east-1` | AWS region when using Bedrock |
 | `LLM_MODEL` | string | `deepseek-v4-flash` | Primary LLM model identifier |
 | `LLM_FALLBACK_PROVIDER` | string | `openrouter` | Provider used when the primary provider is unavailable |

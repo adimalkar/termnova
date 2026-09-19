@@ -43,6 +43,7 @@ from termnova.db.connection import close_db, init_db
 from termnova.observability.tracing import setup_tracing
 from termnova.rag.guardrails import GuardrailViolationError
 from termnova.security.auth import OIDCVerifier, get_current_principal, validate_auth_configuration
+from termnova.security.browser_oidc import BrowserOIDCClient
 from termnova.security.limits import enforce_tenant_request_budget
 from termnova.security.rate_limiter import custom_rate_limit_exceeded_handler, limiter
 from termnova.security.tenancy import require_permission
@@ -101,7 +102,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = cfg
-    app.state.oidc_verifier = OIDCVerifier(cfg) if cfg.effective_auth_mode == "oidc" else None
+    oidc_verifier = OIDCVerifier(cfg) if cfg.effective_auth_mode == "oidc" else None
+    app.state.oidc_verifier = oidc_verifier
+    app.state.browser_oidc_client = (
+        BrowserOIDCClient(cfg, oidc_verifier)
+        if cfg.OIDC_BROWSER_LOGIN_ENABLED and oidc_verifier is not None
+        else None
+    )
 
     if cfg.APP_ENV.lower() == "production" and cfg.effective_auth_mode == "disabled":
         logger.warning("production_authentication_disabled")

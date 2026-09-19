@@ -46,7 +46,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Newsreader:opsz,wght@16..72,400;16..72,600;16..72,700&family=Red+Hat+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/styles.css?v=0.4.3">
+  <link rel="stylesheet" href="/static/css/styles.css?v=0.5.0">
   <link rel="stylesheet" href="/static/css/graph.css?v=0.4.2">
   <link rel="stylesheet" href="/static/css/workspace.css?v=0.4.2">
   <link rel="stylesheet" href="/static/css/inbox.css?v=0.4.2">
@@ -171,14 +171,21 @@
       <div class="auth-mark" aria-hidden="true">T</div>
       <p class="auth-kicker">Protected contract desk</p>
       <h1 id="auth-gate-title">Unlock Termnova</h1>
-      <p class="auth-copy">Enter the workspace access key. Termnova exchanges it for a secure browser session without writing it to page source, localStorage, or sessionStorage.</p>
-      <label class="auth-field" for="auth-access-key">
-        <span>Access key</span>
-        <input id="auth-access-key" name="api_key" type="password" autocomplete="current-password" required maxlength="4096" spellcheck="false">
-      </label>
+      <div id="auth-api-key-panel">
+        <p class="auth-copy">Enter the workspace access key. Termnova exchanges it for a secure browser session without writing it to page source, localStorage, or sessionStorage.</p>
+        <label class="auth-field" for="auth-access-key">
+          <span>Access key</span>
+          <input id="auth-access-key" name="api_key" type="password" autocomplete="current-password" required maxlength="4096" spellcheck="false">
+        </label>
+        <button class="btn btn-primary auth-submit" id="auth-session-submit" type="submit">Unlock desk</button>
+      </div>
+      <div class="auth-oidc-panel" id="auth-oidc-panel" hidden>
+        <p class="auth-copy">Sign in with your organization account. Email, Google, Microsoft, and enterprise SSO are available when enabled by the identity provider.</p>
+        <a class="btn btn-primary auth-submit auth-sign-in" id="auth-oidc-sign-in" href="/api/v1/auth/login?return_to=/app">Continue to secure sign-in</a>
+        <p class="auth-privacy">Termnova receives verified identity claims only after successful sign-in. Provider passwords never pass through Termnova.</p>
+      </div>
       <p class="auth-error" id="auth-session-error" role="alert" aria-live="polite"></p>
-      <button class="btn btn-primary auth-submit" id="auth-session-submit" type="submit">Unlock desk</button>
-      <p class="auth-note">The session expires automatically. Closing it never reveals or changes the production API key.</p>
+      <p class="auth-note" id="auth-session-note">The session expires automatically. Closing it never reveals or changes the production API key.</p>
     </form>
   </div>
   <!-- Mobile Backdrop Overlay for Off-Canvas Sidebar -->
@@ -1599,7 +1606,7 @@
 
   <!-- Scripts -->
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
-  <script src="/static/js/app.js?v=0.4.3"></script>
+  <script src="/static/js/app.js?v=0.5.0"></script>
   <script src="/static/js/chat.js?v=0.4.2"></script>
   <script src="/static/js/ws.js?v=0.4.2"></script>
   <script src="/static/js/workspace.js?v=0.4.2"></script>

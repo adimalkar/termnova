@@ -29,6 +29,28 @@ router = APIRouter(tags=["WebSocket"])
 async def _authenticate_websocket(websocket: WebSocket) -> RequestPrincipal | None:
     """Authenticate the socket and return its principal, or close and return None."""
     settings = getattr(websocket.app.state, "settings", get_settings())
+    browser_token = websocket.cookies.get(BROWSER_SESSION_COOKIE)
+    production = settings.APP_ENV.strip().casefold() == "production"
+
+    if settings.effective_auth_mode == "oidc" and browser_token:
+        if not is_same_origin(
+            websocket.headers.get("origin"),
+            websocket.headers.get("host"),
+            production=production,
+        ):
+            await websocket.close(code=4403, reason="Same-origin request required")
+            return None
+        from termnova.security.browser_oidc import resolve_browser_identity_session
+
+        try:
+            factory = AsyncSessionFactory()
+            async with factory() as session:
+                principal = await resolve_browser_identity_session(session, browser_token)
+                await session.commit()
+                return principal
+        except AuthenticationFailedError:
+            await websocket.close(code=4401, reason="Authentication required")
+            return None
 
     # Bearer-only OIDC clients carry no API key or cookie, so the header/cookie
     # boundary below applies to every other mode.
@@ -43,7 +65,6 @@ async def _authenticate_websocket(websocket: WebSocket) -> RequestPrincipal | No
             await websocket.close(code=4401, reason="Authentication required")
             return None
 
-        production = settings.APP_ENV.strip().casefold() == "production"
         if identity == "browser-session-authenticated" and not is_same_origin(
             websocket.headers.get("origin"),
             websocket.headers.get("host"),

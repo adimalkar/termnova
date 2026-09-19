@@ -72,11 +72,15 @@ class APIAuthenticationMiddleware(BaseHTTPMiddleware):
         self.production = settings.APP_ENV.strip().casefold() == "production"
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        login_request = request.url.path == "/api/v1/auth/session" and request.method == "POST"
+        public_auth_request = request.url.path in {
+            "/api/v1/auth/options",
+            "/api/v1/auth/login",
+            "/api/v1/auth/callback",
+        } or (request.url.path == "/api/v1/auth/session" and request.method == "POST")
         # OIDC clients present a bearer token, which this header/cookie boundary cannot
         # validate; get_current_principal enforces those routes instead.
         oidc_mode = self.settings.effective_auth_mode == "oidc"
-        if request.url.path.startswith("/api/v1/") and not login_request and not oidc_mode:
+        if request.url.path.startswith("/api/v1/") and not public_auth_request and not oidc_mode:
             try:
                 identity = authenticate_request(
                     request.headers.get("x-api-key"),
@@ -89,20 +93,22 @@ class APIAuthenticationMiddleware(BaseHTTPMiddleware):
                     content={"detail": exc.detail},
                     headers=exc.headers,
                 )
-            if (
-                identity == "browser-session-authenticated"
-                and request.method not in {"GET", "HEAD", "OPTIONS"}
-                and not is_same_origin(
-                    request.headers.get("origin"),
-                    request.headers.get("host"),
-                    production=self.production,
-                )
-            ):
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "Same-origin request required."},
-                )
             request.state.auth_identity = identity
+        cookie_mutation = (
+            request.url.path.startswith("/api/v1/")
+            and not public_auth_request
+            and request.method not in {"GET", "HEAD", "OPTIONS"}
+            and bool(request.cookies.get(BROWSER_SESSION_COOKIE))
+        )
+        if cookie_mutation and not is_same_origin(
+            request.headers.get("origin"),
+            request.headers.get("host"),
+            production=self.production,
+        ):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Same-origin request required."},
+            )
         return await call_next(request)
 
 

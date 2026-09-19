@@ -56,6 +56,8 @@ class TenantContext:
 
 def identity_provider_for(principal: RequestPrincipal, settings: Settings) -> str:
     """Return a stable issuer namespace for a verified subject."""
+    if principal.identity_provider:
+        return principal.identity_provider
     if principal.auth_method == "oidc":
         return settings.OIDC_ISSUER or "oidc"
     return principal.auth_method

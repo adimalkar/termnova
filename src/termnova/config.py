@@ -244,6 +244,46 @@ class Settings(BaseSettings):
         le=300,
         description="Allowed JWT clock skew for time-based claim validation",
     )
+    OIDC_BROWSER_LOGIN_ENABLED: bool = Field(
+        default=False,
+        description="Enable the browser Authorization Code + PKCE login flow",
+    )
+    OIDC_CLIENT_ID: str | None = Field(
+        default=None,
+        description="OIDC client identifier used by the browser login flow",
+    )
+    OIDC_CLIENT_SECRET: SecretStr | None = Field(
+        default=None,
+        description="Optional confidential-client secret for the OIDC token exchange",
+    )
+    OIDC_REDIRECT_URI: str | None = Field(
+        default=None,
+        description="Exact callback URI registered with the identity provider",
+    )
+    OIDC_SCOPES: str = Field(
+        default="openid profile email",
+        description="Space-separated scopes requested during browser login",
+    )
+    OIDC_DEFAULT_ORGANIZATION_ID: str | None = Field(
+        default=None,
+        description="Fallback organization for invited users when the ID token has no org claim",
+    )
+    OIDC_AUTO_PROVISION_USERS: bool = Field(
+        default=False,
+        description="Create read-only membership in the configured default organization",
+    )
+    OIDC_SELF_SIGNUP_ENABLED: bool = Field(
+        default=False,
+        description="Create an isolated personal organization for a new verified user",
+    )
+    OIDC_AUTO_PROVISION_ROLE: str = Field(
+        default="read-only",
+        description="Least-privilege role assigned by automatic organization provisioning",
+    )
+    SESSION_SECRET: SecretStr | None = Field(
+        default=None,
+        description="Independent high-entropy secret for short-lived OIDC flow cookies",
+    )
     RATE_LIMIT_DEFAULT: str = Field(
         default="60/minute",
         description="Default endpoint rate limit",
