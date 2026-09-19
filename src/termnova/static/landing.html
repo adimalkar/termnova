@@ -238,12 +238,23 @@
     <section class="evidence-section section-shell" id="evidence" aria-labelledby="evidence-title">
       <div class="evidence-visual reveal">
         <div class="family-label">Agreement family / effective view</div>
-        <div class="family-node root-node"><span>MSA</span><strong>Master Services Agreement</strong><small>Effective Jan 2025</small></div>
-        <div class="family-line line-a"></div>
-        <div class="family-line line-b"></div>
-        <div class="family-node amendment-node"><span>AMD</span><strong>Amendment No. 2</strong><small>Overrides liability · § 6</small></div>
-        <div class="family-node sow-node"><span>SOW</span><strong>Data Platform SOW</strong><small>Inherits MSA controls</small></div>
-        <div class="conflict-ticket"><b>Control found</b><span>Amendment replaces the parent liability cap.</span><mark>$2,000,000 effective</mark></div>
+        <div class="family-map" aria-label="Master Services Agreement amended by Amendment No. 2 and governing the Data Platform SOW">
+          <div class="family-node root-node"><span>MSA</span><strong>Master Services Agreement</strong><small>Effective Jan 2025</small></div>
+          <div class="family-branches">
+            <div class="family-branch amendment-branch">
+              <span class="family-relationship">Amended by</span>
+              <div class="family-node amendment-node"><span>AMD</span><strong>Amendment No. 2</strong><small>Overrides liability · § 6</small></div>
+              <div class="family-resolution">
+                <span class="family-relationship">Resolves to</span>
+                <div class="conflict-ticket"><b>Effective control</b><span>Amendment replaces the parent liability cap.</span><mark>$2,000,000 effective</mark></div>
+              </div>
+            </div>
+            <div class="family-branch sow-branch">
+              <span class="family-relationship">Governs</span>
+              <div class="family-node sow-node"><span>SOW</span><strong>Data Platform SOW</strong><small>Inherits MSA controls</small></div>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="evidence-copy reveal">
         <p class="eyebrow"><span></span> Contract-family intelligence</p>
