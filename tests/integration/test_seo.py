@@ -46,14 +46,11 @@ async def test_webmanifest_endpoint(api_client: AsyncClient):
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_html_seo_metadata(api_client: AsyncClient):
-    """Verify index.html contains OpenGraph, JSON-LD Schema, and canonical tags."""
+    """Verify the public landing page contains complete, indexable product metadata."""
     resp = await api_client.get("/")
     assert resp.status_code == 200
     html = resp.text
-    assert (
-        "<title>Termnova — AI Contract Intelligence, Knowledge Graph & Clause Diffing</title>"
-        in html
-    )
+    assert "<title>Termnova — Contract Obligations, Exposure &amp; Evidence</title>" in html
     assert 'rel="canonical" href="https://termnova.onrender.com/"' in html
     assert 'property="og:title"' in html
     assert 'property="og:site_name" content="Termnova"' in html
@@ -62,8 +59,20 @@ async def test_html_seo_metadata(api_client: AsyncClient):
     assert "application/ld+json" in html
     assert '"@type": "WebSite"' in html
     assert '"name": "Termnova"' in html
-    assert '"@type": "WebApplication"' in html
+    assert '"@type": "SoftwareApplication"' in html
     assert '"@type": "FAQPage"' in html
+    assert 'id="hero-title"' in html
+    assert 'href="/app"' in html
+    assert "The contract signed." in html
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_authenticated_application_shell_has_a_dedicated_route(api_client: AsyncClient):
+    """Keep product UI and its authentication gate outside the public landing route."""
+    resp = await api_client.get("/app")
+    assert resp.status_code == 200
+    html = resp.text
     assert 'id="mobile-header"' in html
     assert 'id="btn-mobile-menu"' in html
     assert 'id="auth-session-form"' in html

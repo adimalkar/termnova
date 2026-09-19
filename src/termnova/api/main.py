@@ -177,6 +177,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
         @app.get("/", include_in_schema=False)
+        async def serve_landing_page() -> FileResponse:
+            landing_path = static_dir / "landing.html"
+            if landing_path.exists():
+                return FileResponse(
+                    str(landing_path),
+                    headers={"Cache-Control": "public, max-age=300"},
+                )
+            return JSONResponse({"message": "Termnova contract intelligence"})
+
+        @app.get("/app", include_in_schema=False)
+        @app.get("/app/", include_in_schema=False)
         async def serve_dashboard() -> FileResponse:
             index_path = static_dir / "index.html"
             if index_path.exists():

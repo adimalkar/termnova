@@ -2,6 +2,7 @@
 User-agent: *
 Allow: /
 Allow: /static/
+Disallow: /app
 Disallow: /api/
 Disallow: /metrics
 

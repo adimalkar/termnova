@@ -10,7 +10,7 @@ from httpx import AsyncClient
 @pytest.mark.asyncio
 async def test_negotiation_html_and_assets_served(api_client: AsyncClient):
     """Verify negotiation tracker markup, stylesheets, and scripts are embedded in index.html."""
-    resp = await api_client.get("/")
+    resp = await api_client.get("/app")
     assert resp.status_code == 200
     html = resp.text
 
