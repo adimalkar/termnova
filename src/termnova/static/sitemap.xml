@@ -9,4 +9,14 @@
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
+  <url><loc>https://termnova.onrender.com/legal</loc><lastmod>2026-09-18</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://termnova.onrender.com/privacy</loc><lastmod>2026-09-18</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://termnova.onrender.com/terms</loc><lastmod>2026-09-18</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://termnova.onrender.com/cookies</loc><lastmod>2026-09-18</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://termnova.onrender.com/acceptable-use</loc><lastmod>2026-09-18</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://termnova.onrender.com/security</loc><lastmod>2026-09-18</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://termnova.onrender.com/dpa</loc><lastmod>2026-09-18</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://termnova.onrender.com/subprocessors</loc><lastmod>2026-09-18</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://termnova.onrender.com/data-rights</loc><lastmod>2026-09-18</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://termnova.onrender.com/accessibility</loc><lastmod>2026-09-18</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
 </urlset>

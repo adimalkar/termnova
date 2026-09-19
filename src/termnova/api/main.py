@@ -204,6 +204,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
             return JSONResponse({"message": "Termnova API operational. Web Dashboard building."})
 
+        legal_pages = {
+            "/legal": "index.html",
+            "/privacy": "privacy.html",
+            "/terms": "terms.html",
+            "/cookies": "cookies.html",
+            "/acceptable-use": "acceptable-use.html",
+            "/security": "security.html",
+            "/dpa": "dpa.html",
+            "/subprocessors": "subprocessors.html",
+            "/data-rights": "data-rights.html",
+            "/accessibility": "accessibility.html",
+        }
+
+        @app.get("/legal", include_in_schema=False)
+        @app.get("/privacy", include_in_schema=False)
+        @app.get("/terms", include_in_schema=False)
+        @app.get("/cookies", include_in_schema=False)
+        @app.get("/acceptable-use", include_in_schema=False)
+        @app.get("/security", include_in_schema=False)
+        @app.get("/dpa", include_in_schema=False)
+        @app.get("/subprocessors", include_in_schema=False)
+        @app.get("/data-rights", include_in_schema=False)
+        @app.get("/accessibility", include_in_schema=False)
+        async def serve_legal_page(request: Request) -> FileResponse:
+            """Serve indexable public legal and trust documents without authentication."""
+            filename = legal_pages[request.url.path.rstrip("/")]
+            return FileResponse(
+                str(static_dir / "legal" / filename),
+                media_type="text/html",
+                headers={"Cache-Control": "public, max-age=300"},
+            )
+
         @app.get("/robots.txt", include_in_schema=False)
         async def serve_robots_txt() -> FileResponse:
             robots_path = static_dir / "robots.txt"
