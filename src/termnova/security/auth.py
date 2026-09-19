@@ -43,7 +43,7 @@ def _authentication_error() -> HTTPException:
 
 def authenticate_api_key(x_api_key: str | None, settings: Settings) -> str:
     """Validate a credential without logging or returning the secret itself."""
-    if not settings.REQUIRE_AUTH:
+    if settings.effective_auth_mode == "disabled":
         return "anonymous"
 
     expected = _api_key(settings)
@@ -111,7 +111,7 @@ def authenticate_browser_session(
     now: int | None = None,
 ) -> str:
     """Validate a signed browser token without storing or returning credentials."""
-    if not settings.REQUIRE_AUTH:
+    if settings.effective_auth_mode == "disabled":
         return "anonymous"
     if not is_valid_browser_session(token, settings, now=now):
         raise _authentication_error()
@@ -125,7 +125,7 @@ def authenticate_request(
     settings: Settings,
 ) -> str:
     """Authenticate an API client header or a same-origin browser session."""
-    if not settings.REQUIRE_AUTH:
+    if settings.effective_auth_mode == "disabled":
         return "anonymous"
     if x_api_key is not None:
         return authenticate_api_key(x_api_key, settings)
@@ -198,6 +198,7 @@ class RequestPrincipal:
     roles: frozenset[str]
     auth_method: AuthMethod
     is_authenticated: bool
+    identity_provider: str | None = None
 
 
 def _clean_display_name(value: str | None) -> str:
@@ -279,6 +280,27 @@ def validate_auth_configuration(settings: Settings) -> None:
     _validate_remote_url(settings.OIDC_ISSUER, "OIDC_ISSUER", allow_insecure)
     if settings.OIDC_JWKS_URL:
         _validate_remote_url(settings.OIDC_JWKS_URL, "OIDC_JWKS_URL", allow_insecure)
+    if not settings.OIDC_BROWSER_LOGIN_ENABLED:
+        return
+
+    if not settings.OIDC_CLIENT_ID or not settings.OIDC_REDIRECT_URI:
+        raise ValueError("OIDC_CLIENT_ID and OIDC_REDIRECT_URI are required for browser OIDC login")
+    _validate_remote_url(settings.OIDC_REDIRECT_URI, "OIDC_REDIRECT_URI", allow_insecure)
+    session_secret = settings.SESSION_SECRET.get_secret_value() if settings.SESSION_SECRET else ""
+    if len(session_secret) < 32:
+        raise ValueError("SESSION_SECRET must contain at least 32 characters")
+    scopes = {item for item in settings.OIDC_SCOPES.split() if item}
+    if "openid" not in scopes:
+        raise ValueError("OIDC_SCOPES must include openid")
+    if settings.OIDC_AUTO_PROVISION_USERS and not settings.OIDC_DEFAULT_ORGANIZATION_ID:
+        raise ValueError("OIDC_AUTO_PROVISION_USERS requires OIDC_DEFAULT_ORGANIZATION_ID")
+    if settings.OIDC_AUTO_PROVISION_ROLE not in {
+        "read-only",
+        "legal-reviewer",
+        "procurement-reviewer",
+        "obligation-owner",
+    }:
+        raise ValueError("OIDC_AUTO_PROVISION_ROLE is not an approved least-privilege role")
 
 
 def _normalize_algorithms(value: str) -> tuple[str, ...]:
@@ -314,6 +336,60 @@ class OIDCVerifier:
 
     async def verify(self, token: str) -> RequestPrincipal:
         """Verify signature and required claims, refreshing keys once for rotation."""
+        claims = await self._verify_claims(token, audience=self.settings.OIDC_AUDIENCE)
+        return self._principal_from_claims(claims, require_organization=True)
+
+    async def verify_id_token(self, token: str, *, nonce: str) -> tuple[RequestPrincipal, bool]:
+        """Verify an OIDC ID token and bind it to the browser authorization request."""
+        if not self.settings.OIDC_CLIENT_ID:
+            raise AuthenticationFailedError("Browser OIDC client is not configured")
+        claims = await self._verify_claims(token, audience=self.settings.OIDC_CLIENT_ID)
+        token_nonce = _required_text(claims.get("nonce"), "nonce")
+        if not hmac.compare_digest(token_nonce, nonce):
+            raise AuthenticationFailedError("ID token nonce does not match the login request")
+        principal = self._principal_from_claims(claims, require_organization=False)
+        return principal, claims.get("email_verified") is True
+
+    def _principal_from_claims(
+        self,
+        claims: dict[str, Any],
+        *,
+        require_organization: bool,
+    ) -> RequestPrincipal:
+        subject = _required_text(claims.get("sub"), "subject")
+        organization_value = claims.get(self.settings.OIDC_ORGANIZATION_CLAIM)
+        if require_organization:
+            organization_id = _required_text(
+                organization_value,
+                self.settings.OIDC_ORGANIZATION_CLAIM,
+            )
+        else:
+            organization_id = (
+                _optional_text(organization_value)
+                or (self.settings.OIDC_DEFAULT_ORGANIZATION_ID or "").strip()
+            )
+        email = _optional_text(claims.get(self.settings.OIDC_EMAIL_CLAIM))
+        display_name = _clean_display_name(
+            _optional_text(claims.get(self.settings.OIDC_NAME_CLAIM))
+            or _optional_text(claims.get("preferred_username"))
+            or email
+            or subject
+        )
+        roles = _normalize_roles(claims.get(self.settings.OIDC_ROLES_CLAIM))
+        return RequestPrincipal(
+            subject=subject,
+            organization_id=organization_id,
+            display_name=display_name,
+            email=email,
+            roles=roles,
+            auth_method="oidc",
+            is_authenticated=True,
+            identity_provider=self.settings.OIDC_ISSUER,
+        )
+
+    async def _verify_claims(self, token: str, *, audience: str | None) -> dict[str, Any]:
+        if not audience:
+            raise AuthenticationFailedError("OIDC token audience is not configured")
         try:
             header = jwt.get_unverified_header(token)
         except JWTError as exc:
@@ -341,7 +417,7 @@ class OIDCVerifier:
                 token,
                 key,
                 algorithms=[algorithm],
-                audience=self.settings.OIDC_AUDIENCE,
+                audience=audience,
                 issuer=self.settings.OIDC_ISSUER,
                 options={
                     "require_aud": True,
@@ -353,30 +429,9 @@ class OIDCVerifier:
             )
         except JWTError as exc:
             raise AuthenticationFailedError("Bearer token validation failed") from exc
-
-        subject = _required_text(claims.get("sub"), "subject")
-        organization_id = _required_text(
-            claims.get(self.settings.OIDC_ORGANIZATION_CLAIM),
-            self.settings.OIDC_ORGANIZATION_CLAIM,
-        )
-        email = _optional_text(claims.get(self.settings.OIDC_EMAIL_CLAIM))
-        display_name = _clean_display_name(
-            _optional_text(claims.get(self.settings.OIDC_NAME_CLAIM))
-            or _optional_text(claims.get("preferred_username"))
-            or email
-            or subject
-        )
-        roles = _normalize_roles(claims.get(self.settings.OIDC_ROLES_CLAIM))
-
-        return RequestPrincipal(
-            subject=subject,
-            organization_id=organization_id,
-            display_name=display_name,
-            email=email,
-            roles=roles,
-            auth_method="oidc",
-            is_authenticated=True,
-        )
+        if not isinstance(claims, dict):
+            raise AuthenticationFailedError("Bearer token claims are invalid")
+        return claims
 
     async def _find_key(
         self,
@@ -526,16 +581,26 @@ async def get_current_principal(
     settings: Settings = request.app.state.settings
     verifier: OIDCVerifier | None = getattr(request.app.state, "oidc_verifier", None)
     bearer_token = bearer.credentials if bearer and bearer.scheme.lower() == "bearer" else None
+    browser_session = request.cookies.get(BROWSER_SESSION_COOKIE)
 
     try:
-        principal = await authenticate_credentials(
-            settings,
-            bearer_token=bearer_token,
-            api_key=api_key,
-            actor_header=actor_header,
-            browser_session=request.cookies.get(BROWSER_SESSION_COOKIE),
-            oidc_verifier=verifier,
-        )
+        if settings.effective_auth_mode == "oidc" and browser_session:
+            from termnova.db.connection import AsyncSessionFactory
+            from termnova.security.browser_oidc import resolve_browser_identity_session
+
+            factory = AsyncSessionFactory()
+            async with factory() as session:
+                principal = await resolve_browser_identity_session(session, browser_session)
+                await session.commit()
+        else:
+            principal = await authenticate_credentials(
+                settings,
+                bearer_token=bearer_token,
+                api_key=api_key,
+                actor_header=actor_header,
+                browser_session=browser_session,
+                oidc_verifier=verifier,
+            )
     except AuthenticationFailedError as exc:
         challenge = "Bearer" if settings.effective_auth_mode == "oidc" else "ApiKey"
         raise HTTPException(

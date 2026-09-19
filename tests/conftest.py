@@ -80,6 +80,7 @@ async def test_engine(test_settings: Settings) -> AsyncGenerator[AsyncEngine, No
 async def clean_db_tables(test_engine: AsyncEngine) -> AsyncGenerator[None, None]:
     """Ensure clean table state for every test to guarantee test isolation."""
     async with test_engine.begin() as conn:
+        await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
         for table in reversed(Base.metadata.sorted_tables):
             await conn.execute(table.delete())
     yield

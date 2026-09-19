@@ -51,6 +51,11 @@ window.formatMarkdownText = formatMarkdownText;
 
 // ──── API Fetch Wrapper ────
 const DESK_ACTOR_KEY = 'termnova.actor';
+const AuthState = {
+  mode: 'api_key',
+  browser_oidc: false,
+  self_signup: false,
+};
 
 function getDeskActor() {
   try {
@@ -75,9 +80,22 @@ function setDeskActor(name) {
 function showAuthGate(message = '') {
   const gate = document.getElementById('auth-gate');
   const error = document.getElementById('auth-session-error');
+  const keyPanel = document.getElementById('auth-api-key-panel');
+  const oidcPanel = document.getElementById('auth-oidc-panel');
+  const note = document.getElementById('auth-session-note');
+  const title = document.getElementById('auth-gate-title');
+  const oidcMode = AuthState.mode === 'oidc' && AuthState.browser_oidc;
+  if (keyPanel) keyPanel.hidden = oidcMode;
+  if (oidcPanel) oidcPanel.hidden = !oidcMode;
+  if (title) title.textContent = oidcMode ? 'Sign in to Termnova' : 'Unlock Termnova';
+  if (note) {
+    note.textContent = oidcMode
+      ? 'Sessions are encrypted in transit, expire automatically, and can be revoked when you sign out.'
+      : 'The session expires automatically. Closing it never reveals or changes the production API key.';
+  }
   if (error) error.textContent = message;
   if (gate) gate.style.display = 'flex';
-  window.setTimeout(() => document.getElementById('auth-access-key')?.focus(), 0);
+  if (!oidcMode) window.setTimeout(() => document.getElementById('auth-access-key')?.focus(), 0);
 }
 
 function hideAuthGate() {
@@ -133,7 +151,24 @@ function bindBrowserSessionControls() {
   });
 }
 
+async function loadAuthenticationOptions() {
+  try {
+    const response = await fetch('/api/v1/auth/options', {
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    if (!response.ok) return;
+    const options = await response.json();
+    AuthState.mode = options.mode || AuthState.mode;
+    AuthState.browser_oidc = options.browser_oidc === true;
+    AuthState.self_signup = options.self_signup === true;
+  } catch (error) {
+    /* The access-key flow remains a safe fallback for legacy deployments. */
+  }
+}
+
 async function ensureBrowserSession() {
+  await loadAuthenticationOptions();
   try {
     const response = await fetch('/api/v1/auth/session', {
       credentials: 'same-origin',
@@ -146,7 +181,14 @@ async function ensureBrowserSession() {
   } catch (error) {
     /* The gate below provides the user-facing recovery path. */
   }
-  showAuthGate('Enter the workspace access key to continue.');
+  const params = new URLSearchParams(window.location.search);
+  const callbackError = params.get('auth_error');
+  const message = callbackError
+    ? 'Sign-in was not completed. Please try again.'
+    : (AuthState.mode === 'oidc' && AuthState.browser_oidc
+      ? 'Use your organization account to continue.'
+      : 'Enter the workspace access key to continue.');
+  showAuthGate(message);
   return false;
 }
 
@@ -173,7 +215,9 @@ async function apiRequest(endpoint, options = {}) {
     const res = await fetch(endpoint, config);
     if (!res.ok) {
       if (res.status === 401) {
-        showAuthGate('Your session expired. Enter the workspace access key again.');
+        showAuthGate(AuthState.mode === 'oidc'
+          ? 'Your session expired. Sign in again to continue.'
+          : 'Your session expired. Enter the workspace access key again.');
       }
       const errJson = await res.json().catch(() => ({}));
       const detail = errJson.detail;
