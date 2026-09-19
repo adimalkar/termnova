@@ -162,7 +162,12 @@ a { color: inherit; }
   line-height: 0.96;
 }
 .hero h1 { max-width: 660px; font-size: clamp(58px, 6.2vw, 88px); }
-.hero h1 em { color: var(--redline); font-weight: 400; }
+.hero h1 em {
+  display: block;
+  margin-top: 0.14em;
+  color: var(--redline);
+  font-weight: 400;
+}
 .hero-lede { max-width: 610px; margin: 30px 0 32px; color: #455049; font-size: 19px; line-height: 1.62; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 16px; }
 .hero-proof { display: flex; margin: 54px 0 0; padding: 22px 0 0; border-top: 1px solid var(--rule); }
