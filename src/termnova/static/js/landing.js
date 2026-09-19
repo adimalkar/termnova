@@ -2,6 +2,8 @@
   const header = document.getElementById('site-header');
   const toggle = document.getElementById('menu-toggle');
   const nav = document.getElementById('site-nav');
+  const principleRail = document.querySelector('.principle-rail');
+  const principleToggle = document.querySelector('.principle-toggle');
 
   const closeMenu = () => {
     nav?.classList.remove('is-open');
@@ -16,6 +18,15 @@
 
   nav?.querySelectorAll('a').forEach((link) => link.addEventListener('click', closeMenu));
   window.addEventListener('scroll', () => header?.classList.toggle('is-scrolled', scrollY > 10), { passive: true });
+
+  principleToggle?.addEventListener('click', () => {
+    const paused = !principleRail?.classList.contains('is-paused');
+    principleRail?.classList.toggle('is-paused', paused);
+    principleToggle.setAttribute('aria-pressed', String(paused));
+    principleToggle.setAttribute('aria-label', paused ? 'Play moving capabilities' : 'Pause moving capabilities');
+    const icon = principleToggle.querySelector('[aria-hidden="true"]');
+    if (icon) icon.textContent = paused ? '▶' : 'Ⅱ';
+  });
 
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const items = document.querySelectorAll('.reveal');

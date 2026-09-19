@@ -67,6 +67,9 @@ async def test_html_seo_metadata(api_client: AsyncClient):
     assert 'id="hero-title"' in html
     assert 'href="/app"' in html
     assert "The contract signed." in html
+    assert 'class="principle-track"' in html
+    assert 'class="principle-group" aria-hidden="true"' in html
+    assert 'aria-label="Pause moving capabilities"' in html
 
 
 @pytest.mark.integration
