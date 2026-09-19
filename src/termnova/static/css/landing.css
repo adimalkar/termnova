@@ -226,8 +226,21 @@ a { color: inherit; }
 .preview-caption { position: relative; z-index: 2; display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin: 15px 4px 0; color: #657069; font: 500 9px/1 var(--mono); text-transform: uppercase; }
 .preview-caption span { width: 7px; height: 7px; background: var(--cite); }
 
-.principle-rail { min-height: 64px; display: flex; align-items: center; justify-content: center; gap: 28px; padding: 16px 24px; overflow: hidden; color: #c8cec9; background: var(--ink-mid); font: 500 10px/1 var(--mono); letter-spacing: 0.09em; text-transform: uppercase; }
-.principle-rail i { width: 4px; height: 4px; flex: 0 0 auto; background: var(--cite); transform: rotate(45deg); }
+.principle-rail { position: relative; min-height: 64px; overflow: hidden; color: #c8cec9; background: var(--ink-mid); font: 500 10px/1 var(--mono); letter-spacing: 0.09em; text-transform: uppercase; }
+.principle-track { display: flex; width: max-content; animation: principle-scroll 28s linear infinite; will-change: transform; }
+.principle-group { min-width: 100vw; width: max-content; min-height: 64px; display: flex; align-items: center; justify-content: space-around; gap: 28px; padding: 16px 24px; flex: 0 0 auto; }
+.principle-group span { white-space: nowrap; }
+.principle-group i { width: 4px; height: 4px; flex: 0 0 auto; background: var(--cite); transform: rotate(45deg); }
+.principle-rail:hover .principle-track,
+.principle-rail.is-paused .principle-track { animation-play-state: paused; }
+.principle-toggle { position: absolute; z-index: 2; top: 50%; right: 16px; width: 32px; height: 32px; display: grid; place-items: center; padding: 0; color: #dce1dc; background: var(--ink); border: 1px solid rgba(235, 232, 220, 0.3); transform: translateY(-50%); cursor: pointer; }
+.principle-toggle:hover,
+.principle-toggle:focus-visible { color: var(--ink); background: var(--cite); outline: 2px solid var(--sheet-bright); outline-offset: 2px; }
+.principle-toggle span { font: 600 11px/1 var(--mono); }
+
+@keyframes principle-scroll {
+  to { transform: translateX(-50%); }
+}
 
 .section-shell { width: var(--page); margin-inline: auto; }
 .control-section { padding-block: 118px; }
@@ -368,8 +381,7 @@ a { color: inherit; }
   .exposure-strip strong { font-size: 17px; }
   .obligation-row { grid-template-columns: 20px 1fr 38px; }
   .owner { display: none; }
-  .principle-rail { justify-content: flex-start; overflow-x: auto; }
-  .principle-rail span { white-space: nowrap; }
+  .principle-group { justify-content: flex-start; }
   .control-section,
   .evidence-section,
   .security-section,
@@ -415,5 +427,8 @@ a { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  .principle-track { animation: none; transform: none; }
+  .principle-group[aria-hidden="true"] { display: none; }
+  .principle-toggle { display: none; }
   .reveal { opacity: 1; transform: none; }
 }
