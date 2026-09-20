@@ -1785,13 +1785,15 @@ def enforce_tenant_ownership(session: Session, _flush_context: Any, _instances: 
 def restore_tenant_rls_context(session: Session, _transaction: Any, connection: Any) -> None:
     """Restore transaction-local RLS settings after an in-request commit."""
     tenant_id = session.info.get("organization_id")
-    if tenant_id is None:
+    bypass_rls = bool(session.info.get("bypass_rls"))
+    if tenant_id is None and not bypass_rls:
         return
-    connection.execute(
-        text("SELECT set_config('app.organization_id', :organization_id, true)"),
-        {"organization_id": str(tenant_id)},
-    )
+    if tenant_id is not None:
+        connection.execute(
+            text("SELECT set_config('app.organization_id', :organization_id, true)"),
+            {"organization_id": str(tenant_id)},
+        )
     connection.execute(
         text("SELECT set_config('app.bypass_rls', :bypass, true)"),
-        {"bypass": "on" if session.info.get("bypass_rls") else "off"},
+        {"bypass": "on" if bypass_rls else "off"},
     )

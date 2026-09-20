@@ -244,6 +244,9 @@ async def provision_browser_membership(
     settings: Settings,
 ) -> tuple[Organization, OrganizationMembership]:
     """Resolve an invited user or safely create an isolated/self-service membership."""
+    # Keep the bypass in Session.info so SQLAlchemy restores the transaction-local
+    # setting if a new transaction begins during callback persistence.
+    session.info["bypass_rls"] = True
     await session.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
     provider = principal.identity_provider or settings.OIDC_ISSUER or "oidc"
     organization: Organization | None = None
@@ -388,6 +391,9 @@ async def issue_browser_identity_session(
             details={"method": "oidc"},
         )
     )
+    # Surface database and RLS failures inside the callback boundary instead of
+    # after the redirect response has already been constructed.
+    await session.flush()
     return token
 
 

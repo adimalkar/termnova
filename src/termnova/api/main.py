@@ -5,14 +5,18 @@ from pathlib import Path
 
 import structlog
 from fastapi import Depends, FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from termnova import __version__
 from termnova.api.dependencies import get_tenant_context
+from termnova.api.error_pages import error_response
 from termnova.api.middleware import setup_middleware
 from termnova.api.routes import (
     analytics_router,
@@ -273,20 +277,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 return FileResponse(str(g_path), media_type="text/html")
             return JSONResponse({"error": "verification file not found"}, status_code=404)
 
-    # Global Exception Handlers
+    # Global Exception Handlers. Browser navigation receives a recoverable Termnova
+    # page; API clients retain their established JSON response contracts.
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+        return error_response(
+            request,
+            status_code=exc.status_code,
+            error="HTTPException",
+            detail=exc.detail,
+            headers=dict(exc.headers or {}),
+            json_content={"detail": jsonable_encoder(exc.detail)},
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        detail = jsonable_encoder(exc.errors())
+        return error_response(
+            request,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            error="RequestValidationError",
+            detail=detail,
+            json_content={"detail": detail},
+        )
+
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
         req_id = getattr(request.state, "request_id", "unknown")
-        logger.error(
-            "Unhandled API exception", error=str(exc), path=request.url.path, request_id=req_id
+        logger.exception(
+            "Unhandled API exception",
+            error_type=type(exc).__name__,
+            path=request.url.path,
+            request_id=req_id,
         )
-        return JSONResponse(
+        return error_response(
+            request,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "error": "InternalServerError",
-                "detail": "An unexpected error occurred while processing your request.",
-                "request_id": req_id,
-            },
+            error="InternalServerError",
+            detail="An unexpected error occurred while processing your request.",
         )
 
     return app
