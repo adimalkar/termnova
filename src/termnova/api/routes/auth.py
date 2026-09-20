@@ -2,9 +2,11 @@
 
 from typing import Annotated
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, SecretStr
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from termnova.config import Settings
@@ -30,6 +32,7 @@ from termnova.security.browser_oidc import (
 from termnova.security.rate_limiter import limiter
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
+logger = structlog.get_logger(__name__)
 
 
 class BrowserSessionRequest(BaseModel):
@@ -115,25 +118,54 @@ async def complete_oidc_login(
         return response
     if not code or not state_value:
         raise HTTPException(status_code=400, detail="Authorization response is incomplete")
+    stage = "flow_validation"
     try:
         flow = read_flow_cookie(
             settings,
             request.cookies.get(OIDC_FLOW_COOKIE),
             state=state_value,
         )
+        stage = "token_exchange"
         principal, email_verified = await _oidc_client(request).exchange(code=code, flow=flow)
+        stage = "membership_provisioning"
         organization, membership = await provision_browser_membership(
             session,
             principal,
             email_verified=email_verified,
             settings=settings,
         )
+        stage = "session_persistence"
         token = await issue_browser_identity_session(session, organization, membership, settings)
     except AuthenticationFailedError as exc:
+        await session.rollback()
+        logger.warning(
+            "oidc_callback_rejected",
+            stage=stage,
+            request_id=getattr(request.state, "request_id", "unknown"),
+            reason=str(exc),
+        )
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except IdentityProviderUnavailableError as exc:
+        await session.rollback()
+        logger.warning(
+            "oidc_provider_unavailable",
+            stage=stage,
+            request_id=getattr(request.state, "request_id", "unknown"),
+        )
         raise HTTPException(
             status_code=503, detail="Sign-in provider is temporarily unavailable"
+        ) from exc
+    except SQLAlchemyError as exc:
+        await session.rollback()
+        logger.exception(
+            "oidc_callback_persistence_failed",
+            stage=stage,
+            request_id=getattr(request.state, "request_id", "unknown"),
+            error_type=type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Secure sign-in could not be completed. Please try again shortly.",
         ) from exc
 
     response = RedirectResponse(flow.return_to, status_code=status.HTTP_302_FOUND)

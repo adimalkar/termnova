@@ -30,13 +30,26 @@ limiter = Limiter(
 
 
 def custom_rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> Response:
-    """Return structured JSON error response on rate limit violation."""
+    """Return a browser recovery page or structured API rate-limit response."""
+    from termnova.api.error_pages import error_response
+
+    retry_after = getattr(exc, "retry_after", 60)
+    json_content = {
+        "error": "RateLimitExceeded",
+        "message": f"Too many requests. Rate limit exceeded: {exc.detail}",
+        "retry_after": retry_after,
+    }
+    if "text/html" in request.headers.get("accept", "").casefold():
+        return error_response(
+            request,
+            status_code=429,
+            error="RateLimitExceeded",
+            detail=json_content["message"],
+            headers={"Retry-After": str(retry_after)},
+            json_content=json_content,
+        )
     return JSONResponse(
         status_code=429,
-        content={
-            "error": "RateLimitExceeded",
-            "message": f"Too many requests. Rate limit exceeded: {exc.detail}",
-            "retry_after": getattr(exc, "retry_after", 60),
-        },
-        headers={"Retry-After": str(getattr(exc, "retry_after", 60))},
+        content=json_content,
+        headers={"Retry-After": str(retry_after)},
     )

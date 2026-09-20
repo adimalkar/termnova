@@ -111,3 +111,21 @@ Client-supplied actor headers and payload names cannot override an authenticated
 5. Choose invite-only, controlled default-organization provisioning, or isolated self-signup deliberately.
 6. Test wrong audience, issuer, nonce, state, revoked membership, expiry, and key rotation in staging.
 7. Confirm provider outage, authentication failure, and key-rotation alerts.
+
+### Render deployment requirement
+
+If the Render service was created manually rather than from `render.yaml`, add this under the
+web service's **Settings → Build & Deploy → Pre-Deploy Command**:
+
+```shell
+alembic upgrade head
+```
+
+The callback persists an organization membership and an opaque browser session. A deployment
+that starts the new application without first applying `c29e7a105fb8` cannot complete Google or
+email sign-in. Rebuild and deploy after saving the command, then confirm the pre-deploy log reaches
+the current Alembic head before testing login.
+
+Browser navigation receives a branded recovery page for authentication and application failures.
+Keep its displayed reference value when troubleshooting; the same request ID and callback stage are
+written to structured application logs without authorization codes, tokens, or provider secrets.

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#1c2622">
+  <title>{{STATUS_CODE}} — Termnova</title>
+  <link rel="icon" type="image/jpeg" href="/static/assets/favicon.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Newsreader:opsz,wght@16..72,500;16..72,600&family=Red+Hat+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/error.css?v=0.6.0">
+</head>
+<body>
+  <main class="error-shell">
+    <section class="error-sheet" aria-labelledby="error-title">
+      <header class="error-brand">
+        <a class="brand-lockup" href="/" aria-label="Termnova home">
+          <span class="brand-mark" aria-hidden="true">T</span>
+          <span class="brand-name">Term<span>nova</span></span>
+        </a>
+        <span class="status-stamp">HTTP {{STATUS_CODE}}</span>
+      </header>
+
+      <div class="error-body">
+        <p class="eyebrow"><span aria-hidden="true"></span>{{EYEBROW}}</p>
+        <h1 id="error-title">{{TITLE}}</h1>
+        <p class="error-message">{{MESSAGE}}</p>
+
+        <div class="error-actions">
+          <a class="button button-primary" href="{{PRIMARY_HREF}}">{{PRIMARY_LABEL}} <span aria-hidden="true">→</span></a>
+          <a class="button button-quiet" href="{{SECONDARY_HREF}}">{{SECONDARY_LABEL}}</a>
+        </div>
+
+        <dl class="reference-block">
+          <div>
+            <dt>Reference</dt>
+            <dd>{{REQUEST_ID}}</dd>
+          </div>
+          <div>
+            <dt>Status</dt>
+            <dd>{{STATUS_CODE}}</dd>
+          </div>
+        </dl>
+      </div>
+
+      <footer class="error-footer">
+        <span>Source-backed</span>
+        <i aria-hidden="true"></i>
+        <span>Human-verified</span>
+        <i aria-hidden="true"></i>
+        <span>Action-oriented</span>
+      </footer>
+    </section>
+  </main>
+</body>
+</html>
