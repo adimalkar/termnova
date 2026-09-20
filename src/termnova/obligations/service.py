@@ -14,7 +14,9 @@ from termnova.db.models import (
     ContractFact,
     Obligation,
     ObligationEvent,
+    ObligationEvidence,
     OrganizationMembership,
+    StoredObject,
 )
 
 if TYPE_CHECKING:
@@ -200,6 +202,8 @@ class ObligationService:
             raise ObligationAccessError("Only the assigned owner or a workflow manager can act")
         if to_status not in TRANSITIONS.get(obligation.status, frozenset()):
             raise ValueError(f"Invalid obligation transition: {obligation.status} -> {to_status}")
+        if to_status == "completed":
+            await self._validate_completion_evidence(obligation)
         previous_status = obligation.status
         obligation.status = to_status
         obligation.completed_at = datetime.now(UTC) if to_status == "completed" else None
@@ -213,6 +217,211 @@ class ObligationService:
             details={"reason": reason, "revision": obligation.revision},
         )
         return obligation
+
+    async def find_evidence_by_hash(
+        self,
+        obligation_id: uuid.UUID,
+        sha256: str,
+    ) -> ObligationEvidence | None:
+        """Return a previously submitted artifact without crossing the tenant boundary."""
+        return await self.session.scalar(
+            select(ObligationEvidence).where(
+                ObligationEvidence.obligation_id == obligation_id,
+                ObligationEvidence.organization_id == self.organization_id,
+                ObligationEvidence.sha256 == sha256,
+            )
+        )
+
+    async def submit_evidence(
+        self,
+        obligation_id: uuid.UUID,
+        *,
+        expected_revision: int,
+        actor_membership_id: uuid.UUID,
+        actor_subject: str,
+        may_manage: bool,
+        evidence_type: str,
+        filename: str,
+        description: str | None,
+        sha256: str,
+        mime_type: str,
+        content_size: int,
+        object_key: str,
+        scan_status: str,
+        scan_engine: str,
+        scan_details: str,
+        encryption: str,
+        retention_until: datetime | None = None,
+    ) -> tuple[ObligationEvidence, Obligation, bool]:
+        """Attach one idempotent, governed artifact to an obligation."""
+        obligation = await self._locked(obligation_id, expected_revision)
+        if obligation.owner_membership_id != actor_membership_id and not may_manage:
+            raise ObligationAccessError(
+                "Only the assigned owner or a workflow manager can submit evidence"
+            )
+        if obligation.status in {"waived", "superseded"}:
+            raise ValueError(f"Cannot add evidence to an obligation in {obligation.status} state")
+        existing = await self.find_evidence_by_hash(obligation_id, sha256)
+        if existing is not None:
+            return existing, obligation, False
+
+        stored_object = StoredObject(
+            organization_id=self.organization_id,
+            object_key=object_key,
+            object_kind="obligation_evidence",
+            sha256=sha256,
+            mime_type=mime_type,
+            size_bytes=content_size,
+            scan_status=scan_status,
+            scan_engine=scan_engine,
+            scan_details={"result": scan_details},
+            encryption=encryption,
+            retention_until=retention_until,
+        )
+        self.session.add(stored_object)
+        await self.session.flush()
+        evidence = ObligationEvidence(
+            organization_id=self.organization_id,
+            obligation_id=obligation.id,
+            stored_object_id=stored_object.id,
+            evidence_type=evidence_type,
+            filename=filename,
+            description=description,
+            sha256=sha256,
+            mime_type=mime_type,
+            size_bytes=content_size,
+            submitted_by_membership_id=actor_membership_id,
+            submitted_by_subject=actor_subject,
+        )
+        self.session.add(evidence)
+        obligation.revision += 1
+        await self.session.flush()
+        await self._record_event(
+            obligation,
+            "evidence_submitted",
+            actor_subject,
+            from_status=obligation.status,
+            to_status=obligation.status,
+            details={
+                "evidence_id": str(evidence.id),
+                "evidence_type": evidence.evidence_type,
+                "sha256": evidence.sha256,
+                "revision": obligation.revision,
+            },
+        )
+        return evidence, obligation, True
+
+    async def review_evidence(
+        self,
+        obligation_id: uuid.UUID,
+        evidence_id: uuid.UUID,
+        *,
+        decision: str,
+        expected_revision: int,
+        reviewer_membership_id: uuid.UUID,
+        reviewer_subject: str,
+        note: str | None = None,
+    ) -> tuple[ObligationEvidence, Obligation]:
+        """Accept or reject pending evidence while enforcing separation of duties."""
+        obligation = await self._locked(obligation_id, expected_revision)
+        evidence = await self.session.scalar(
+            select(ObligationEvidence)
+            .where(
+                ObligationEvidence.id == evidence_id,
+                ObligationEvidence.obligation_id == obligation.id,
+                ObligationEvidence.organization_id == self.organization_id,
+            )
+            .with_for_update()
+        )
+        if evidence is None:
+            raise LookupError("Obligation evidence not found")
+        if evidence.status != "pending":
+            raise ValueError("Evidence has already received a final decision")
+        if decision not in {"accept", "reject"}:
+            raise ValueError("Evidence decision must be accept or reject")
+        if (
+            decision == "accept"
+            and self._requires_independent_acceptance(obligation)
+            and evidence.submitted_by_membership_id == reviewer_membership_id
+        ):
+            raise ObligationAccessError(
+                "This obligation requires evidence acceptance by a different member"
+            )
+
+        evidence.status = "accepted" if decision == "accept" else "rejected"
+        evidence.reviewed_by_membership_id = reviewer_membership_id
+        evidence.reviewed_by_subject = reviewer_subject
+        evidence.reviewed_at = datetime.now(UTC)
+        evidence.review_note = note
+        obligation.revision += 1
+        await self._record_event(
+            obligation,
+            f"evidence_{evidence.status}",
+            reviewer_subject,
+            from_status=obligation.status,
+            to_status=obligation.status,
+            details={
+                "evidence_id": str(evidence.id),
+                "evidence_type": evidence.evidence_type,
+                "note": note,
+                "revision": obligation.revision,
+            },
+        )
+        return evidence, obligation
+
+    async def _validate_completion_evidence(self, obligation: Obligation) -> None:
+        requirements = obligation.evidence_requirements or {}
+        required_types = {
+            str(item).strip().casefold()
+            for item in requirements.get("required_types", requirements.get("types", []))
+            if str(item).strip()
+        }
+        minimum = requirements.get("minimum_accepted", requirements.get("min_accepted", 0))
+        try:
+            minimum_accepted = max(int(minimum), 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Evidence minimum_accepted must be a non-negative integer") from exc
+        if required_types:
+            minimum_accepted = max(minimum_accepted, len(required_types))
+        if minimum_accepted == 0:
+            return
+
+        accepted = list(
+            (
+                await self.session.execute(
+                    select(ObligationEvidence).where(
+                        ObligationEvidence.obligation_id == obligation.id,
+                        ObligationEvidence.organization_id == self.organization_id,
+                        ObligationEvidence.status == "accepted",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        accepted_types = {item.evidence_type.casefold() for item in accepted}
+        missing_types = sorted(required_types - accepted_types)
+        if missing_types:
+            raise ValueError(
+                f"Accepted evidence is missing required types: {', '.join(missing_types)}"
+            )
+        if len(accepted) < minimum_accepted:
+            raise ValueError(
+                f"At least {minimum_accepted} accepted evidence artifact(s) are required"
+            )
+
+    @staticmethod
+    def _requires_independent_acceptance(obligation: Obligation) -> bool:
+        requirements = obligation.evidence_requirements or {}
+        if requirements.get("independent_acceptance") or requirements.get("regulated"):
+            return True
+        threshold = requirements.get("high_value_threshold")
+        if threshold is None or obligation.monetary_value is None:
+            return False
+        try:
+            return obligation.monetary_value >= Decimal(str(threshold))
+        except InvalidOperation as exc:
+            raise ValueError("Evidence high_value_threshold must be numeric") from exc
 
     async def _locked(self, obligation_id: uuid.UUID, expected_revision: int) -> Obligation:
         obligation = await self.session.scalar(
