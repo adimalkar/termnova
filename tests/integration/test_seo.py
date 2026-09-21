@@ -84,6 +84,18 @@ async def test_authenticated_application_shell_has_a_dedicated_route(api_client:
     assert 'id="auth-session-form"' in html
     assert 'id="auth-access-key"' in html
     assert 'id="btn-lock-desk"' in html
+    assert 'src="/static/js/app.js?v=0.5.1"' in html
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_lock_desk_returns_to_public_landing_page(api_client: AsyncClient):
+    """Keep logout revocation, then leave the protected application shell."""
+    resp = await api_client.get("/static/js/app.js")
+    assert resp.status_code == 200
+    assert "method: 'DELETE'" in resp.text
+    assert "window.location.assign('/');" in resp.text
+    assert "showAuthGate('The desk is locked.');" not in resp.text
 
 
 @pytest.mark.integration

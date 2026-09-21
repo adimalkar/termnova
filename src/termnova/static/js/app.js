@@ -146,7 +146,7 @@ function bindBrowserSessionControls() {
         credentials: 'same-origin',
       });
     } finally {
-      showAuthGate('The desk is locked.');
+      window.location.assign('/');
     }
   });
 }
