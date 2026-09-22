@@ -141,6 +141,32 @@ services:
           name: termnova-redis
           property: connectionString
 
+  # ──── Obligation Recurrence and Alert Scheduler ────
+  - type: cron
+    name: termnova-obligation-automation
+    runtime: docker
+    dockerfilePath: ./Dockerfile.worker
+    dockerContext: .
+    dockerCommand: python -m termnova.obligations.automation --horizon-days 90 --lookback-days 30
+    schedule: "*/15 * * * *"
+    plan: starter
+    region: oregon
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: REQUIRE_AUTH
+        value: "true"
+      - key: API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: "[]"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: termnova-postgres
+          property: connectionString
+
   # ──── Redis Distributed Cache ────
   - type: redis
     name: termnova-redis

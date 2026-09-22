@@ -14,11 +14,14 @@ from termnova.db.models import (
     Document,
     DocumentVersion,
     LogicalDocument,
+    ObligationAlert,
     ObligationEvent,
     ObligationEvidence,
+    ObligationInstance,
     ObligationInstanceEvent,
     Organization,
     OrganizationMembership,
+    OutboxEvent,
 )
 from termnova.facts import ContractFactExtractor, FactReviewService
 from termnova.lifecycle import VersionLifecycleService
@@ -28,6 +31,7 @@ from termnova.obligations import (
     RecurringObligationService,
     StaleObligationRevisionError,
 )
+from termnova.obligations.automation import ObligationAutomationService
 from termnova.operations.jobs import get_or_create_snapshot
 from termnova.storage import DocumentStorage
 
@@ -810,3 +814,108 @@ async def test_recurring_instance_api_materializes_lists_transitions_and_audits(
         "generated",
         "status_changed",
     ]
+
+
+async def test_automation_schedules_activates_and_acknowledges_idempotent_alerts(
+    test_session, test_settings, api_client
+):
+    fact = await _verified_payment_fact(test_session, test_settings)
+    owner = await _member(test_session, "alert-owner@example.com")
+    now = datetime(2026, 9, 12, 12, tzinfo=UTC)
+    obligation, _ = await ObligationService(
+        test_session, test_session.info["organization_id"]
+    ).create_from_fact(
+        fact.id,
+        actor_subject="legal@example.com",
+        owner_membership_id=owner.id,
+        due_at=now + timedelta(days=5),
+        lead_time_days=7,
+        escalation_policy={
+            "steps": [{"after_days": 1, "recipient": "legal-reviewer", "channel": "in_app"}]
+        },
+    )
+    automation = ObligationAutomationService(test_session, test_session.info["organization_id"])
+
+    first = await automation.run_cycle(now=now)
+    replay = await automation.run_cycle(now=now)
+
+    assert first.scheduled_alerts == 3
+    assert first.ready_alerts == 1
+    assert replay.scheduled_alerts == 0
+    assert replay.ready_alerts == 0
+    alerts = list(
+        (
+            await test_session.scalars(
+                select(ObligationAlert)
+                .where(ObligationAlert.obligation_id == obligation.id)
+                .order_by(ObligationAlert.scheduled_for, ObligationAlert.alert_type)
+            )
+        ).all()
+    )
+    assert [(item.alert_type, item.status) for item in alerts] == [
+        ("reminder", "ready"),
+        ("due", "scheduled"),
+        ("escalation", "scheduled"),
+    ]
+    assert len((await test_session.scalars(select(OutboxEvent))).all()) == 1
+
+    later = await automation.run_cycle(now=now + timedelta(days=7))
+    assert later.ready_alerts == 2
+    assert len((await test_session.scalars(select(OutboxEvent))).all()) == 3
+    await test_session.commit()
+
+    listed = await api_client.get("/api/v1/obligations/alerts?mine=false&status=ready")
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 3
+    reminder = next(item for item in listed.json()["alerts"] if item["alert_type"] == "reminder")
+    acknowledged = await api_client.post(
+        f"/api/v1/obligations/alerts/{reminder['id']}/acknowledgements",
+        json={"expected_revision": reminder["revision"]},
+    )
+    assert acknowledged.status_code == 200
+    assert acknowledged.json()["status"] == "acknowledged"
+    assert acknowledged.json()["acknowledged_by_subject"] == "local-development"
+
+    history = await api_client.get(f"/api/v1/obligations/{obligation.id}/events")
+    event_types = [item["event_type"] for item in history.json()]
+    assert event_types.count("reminder_sent") == 1
+    assert event_types.count("due_alert_sent") == 1
+    assert event_types.count("escalation_sent") == 1
+    assert event_types.count("alert_acknowledged") == 1
+
+
+async def test_automation_freezes_recurring_alert_policy_and_cancels_terminal_work(
+    test_session, test_settings
+):
+    fact = await _verified_payment_fact(test_session, test_settings)
+    owner = await _member(test_session, "recurring-alert-owner@example.com")
+    now = datetime(2026, 9, 12, 12, tzinfo=UTC)
+    obligation, _ = await ObligationService(
+        test_session, test_session.info["organization_id"]
+    ).create_from_fact(
+        fact.id,
+        actor_subject="legal@example.com",
+        owner_membership_id=owner.id,
+        due_at=now + timedelta(days=1),
+        recurrence_rule={"rrule": "FREQ=WEEKLY;COUNT=2", "timezone": "UTC"},
+        lead_time_days=2,
+        escalation_policy={"steps": [{"after_days": 1, "recipient": "owner"}]},
+    )
+    automation = ObligationAutomationService(test_session, test_session.info["organization_id"])
+    first = await automation.run_cycle(now=now, horizon_days=30, lookback_days=1)
+
+    assert first.materialized_instances == 2
+    assert first.scheduled_alerts == 6
+    instances = list((await test_session.scalars(select(ObligationInstance))).all())
+    assert all(item.lead_time_days_snapshot == 2 for item in instances)
+    assert all(item.escalation_policy_snapshot["steps"][0]["after_days"] == 1 for item in instances)
+
+    obligation.lead_time_days = 30
+    obligation.escalation_policy = {"steps": []}
+    obligation.status = "completed"
+    await test_session.flush()
+    cancelled = await automation.run_cycle(now=now, horizon_days=30, lookback_days=1)
+
+    assert cancelled.cancelled_alerts == 6
+    statuses = set((await test_session.scalars(select(ObligationAlert.status))).all())
+    assert statuses == {"cancelled"}
