@@ -112,6 +112,13 @@
   color: #fff;
 }
 
+.btn-neg-primary:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.7);
+  opacity: 0.55;
+  transform: none;
+}
+
 /* ──── Track Header Summary Banner ──── */
 .neg-track-header {
   background: rgba(30, 41, 59, 0.5);
@@ -714,6 +721,183 @@
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* ──── Governed Playbook Assessment ──── */
+.playbook-control-card,
+.playbook-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1.25rem;
+  border: 1px solid rgba(96, 165, 250, 0.22);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(30, 64, 175, 0.16), rgba(15, 23, 42, 0.72));
+}
+
+.playbook-empty {
+  display: block;
+  text-align: center;
+}
+
+.playbook-control-card h3,
+.playbook-empty h3,
+.playbook-findings-head h3,
+.playbook-position-card h4 {
+  margin: 0.25rem 0;
+  color: #f8fafc;
+}
+
+.playbook-control-card p,
+.playbook-empty p,
+.playbook-position-card p {
+  margin: 0;
+  color: #cbd5e1;
+  line-height: 1.55;
+}
+
+.playbook-kicker {
+  color: #60a5fa;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.playbook-position-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.playbook-position-card,
+.playbook-finding {
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.62);
+}
+
+.playbook-position-card small,
+.playbook-evidence-block small,
+.playbook-findings-head span {
+  color: #94a3b8;
+}
+
+.playbook-position-head,
+.playbook-findings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.playbook-risk,
+.playbook-classification,
+.playbook-approval,
+.playbook-approved {
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.playbook-risk {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.playbook-summary-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+}
+
+.playbook-summary-row > div {
+  display: flex;
+  flex-direction: column;
+  padding: 0.85rem;
+  border: 1px solid rgba(52, 211, 153, 0.2);
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.playbook-summary-row strong {
+  color: #f8fafc;
+  font-size: 1.4rem;
+}
+
+.playbook-summary-row span {
+  color: #94a3b8;
+  font-size: 0.76rem;
+}
+
+.playbook-summary-row .needs-approval {
+  border-color: rgba(248, 113, 113, 0.25);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.playbook-findings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.playbook-finding {
+  border-left: 3px solid #60a5fa;
+}
+
+.playbook-finding.finding-fallback,
+.playbook-finding.finding-outside_playbook {
+  border-left-color: #fbbf24;
+}
+
+.playbook-finding.finding-prohibited {
+  border-left-color: #f87171;
+}
+
+.playbook-reason {
+  color: #e2e8f0;
+}
+
+.playbook-finding details summary {
+  color: #93c5fd;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.playbook-evidence-block {
+  margin: 0.75rem 0;
+  padding: 0.8rem;
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.48);
+}
+
+.playbook-evidence-block p {
+  color: #cbd5e1;
+  white-space: pre-wrap;
+}
+
+.playbook-approval,
+.playbook-approved {
+  display: inline-block;
+  margin-top: 0.5rem;
+}
+
+.playbook-approval {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.playbook-approved {
+  color: #6ee7b7;
+  background: rgba(16, 185, 129, 0.12);
+}
+
 /* ──── Mobile Responsive Media Queries ──── */
 @media screen and (max-width: 768px) {
   .neg-view-container {
@@ -757,5 +941,14 @@
   .neg-modal-content {
     width: 95vw;
     padding: 1rem;
+  }
+
+  .playbook-control-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .playbook-summary-row {
+    grid-template-columns: 1fr;
   }
 }

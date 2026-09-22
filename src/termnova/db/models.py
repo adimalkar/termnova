@@ -1951,6 +1951,185 @@ class NegotiationChange(TenantOwned, Base):
         return f"<NegotiationChange(track={self.track_id}, v{self.from_version}->v{self.to_version}, cat='{self.clause_category}', party='{self.concession_party}')>"
 
 
+class NegotiationPlaybook(TenantOwned, Base):
+    """Versioned, organization-approved negotiation positions for a contract type."""
+
+    __tablename__ = "negotiation_playbooks"
+    __table_args__ = (
+        Index(
+            "uq_active_playbook_contract_type",
+            "organization_id",
+            "contract_type",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    contract_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="draft", nullable=False, index=True)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    approved_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    clauses: Mapped[list["PlaybookClausePosition"]] = relationship(
+        "PlaybookClausePosition",
+        back_populates="playbook",
+        cascade="all, delete-orphan",
+        order_by="PlaybookClausePosition.clause_category",
+    )
+
+
+class PlaybookClausePosition(TenantOwned, Base):
+    """Preferred, acceptable, and fallback language for one clause category."""
+
+    __tablename__ = "playbook_clause_positions"
+    __table_args__ = (
+        UniqueConstraint("playbook_id", "clause_category", name="uq_playbook_clause_category"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    playbook_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("negotiation_playbooks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    clause_category: Mapped[str] = mapped_column(String(80), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    preferred_language: Mapped[str] = mapped_column(Text, nullable=False)
+    acceptable_language: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default="[]", nullable=False
+    )
+    fallback_language: Mapped[str | None] = mapped_column(Text, nullable=True)
+    required_terms: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default="[]", nullable=False
+    )
+    prohibited_terms: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default="[]", nullable=False
+    )
+    similarity_threshold: Mapped[float] = mapped_column(Float, default=0.8, nullable=False)
+    risk_level: Mapped[str] = mapped_column(String(20), default="medium", nullable=False)
+    approval_level: Mapped[str] = mapped_column(String(20), default="legal", nullable=False)
+    source_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
+    )
+    source_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_clause: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    playbook: Mapped["NegotiationPlaybook"] = relationship(
+        "NegotiationPlaybook", back_populates="clauses"
+    )
+
+
+class PlaybookAssessment(TenantOwned, Base):
+    """Immutable snapshot of a negotiation version evaluated against a playbook revision."""
+
+    __tablename__ = "playbook_assessments"
+    __table_args__ = (
+        UniqueConstraint(
+            "playbook_id",
+            "playbook_revision",
+            "negotiation_version_id",
+            name="uq_playbook_revision_assessment",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    playbook_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("negotiation_playbooks.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    playbook_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    negotiation_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("negotiation_versions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    assessed_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    summary: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    findings: Mapped[list["PlaybookFinding"]] = relationship(
+        "PlaybookFinding",
+        back_populates="assessment",
+        cascade="all, delete-orphan",
+        order_by="PlaybookFinding.created_at",
+    )
+
+
+class PlaybookFinding(TenantOwned, Base):
+    """Source-backed clause deviation and its required approval path."""
+
+    __tablename__ = "playbook_findings"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    assessment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("playbook_assessments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    clause_position_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("playbook_clause_positions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    negotiation_change_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("negotiation_changes.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="RESTRICT"), nullable=False
+    )
+    policy_source_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
+    )
+    clause_category: Mapped[str] = mapped_column(String(80), nullable=False)
+    classification: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    observed_text: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    suggested_language: Mapped[str | None] = mapped_column(Text, nullable=True)
+    similarity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    approval_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    approval_level: Mapped[str] = mapped_column(String(20), default="none", nullable=False)
+    risk_level: Mapped[str] = mapped_column(String(20), default="medium", nullable=False)
+    source_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_clause: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    policy_source_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    policy_source_clause: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    assessment: Mapped["PlaybookAssessment"] = relationship(
+        "PlaybookAssessment", back_populates="findings"
+    )
+
+
 @event.listens_for(Session, "before_flush")
 def enforce_tenant_ownership(session: Session, _flush_context: Any, _instances: Any) -> None:
     """Populate and validate tenant ownership for every new or changed artifact."""

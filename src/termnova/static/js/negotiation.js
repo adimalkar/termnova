@@ -12,7 +12,7 @@ window.NegotiationModule = (function () {
     tracks: [],
     activeTrackId: null,
     activeTrack: null,
-    activeTab: 'timeline', // 'timeline', 'concessions', 'risk', 'diff', 'summary'
+    activeTab: 'timeline', // 'timeline', 'concessions', 'risk', 'diff', 'playbook', 'summary'
     diffFromVersion: 1,
     diffToVersion: 2,
     isLoading: false,
@@ -262,6 +262,9 @@ window.NegotiationModule = (function () {
         break;
       case 'diff':
         loadDiffView(state.activeTrackId);
+        break;
+      case 'playbook':
+        loadPlaybookView(state.activeTrackId);
         break;
       case 'summary':
         loadSummaryView(state.activeTrackId);
@@ -663,7 +666,174 @@ window.NegotiationModule = (function () {
   }
 
   /**
-   * ──── TAB 5: AI Negotiation Summary View ────
+   * ──── TAB 5: Governed Playbook Assessment ────
+   */
+  async function loadPlaybookView() {
+    const container = document.getElementById('neg-tab-playbook');
+    if (!container || !state.activeTrack) return;
+
+    container.innerHTML = '<div class="loading-spinner">Loading approved playbook...</div>';
+    try {
+      const contractType = encodeURIComponent(state.activeTrack.contract_type);
+      const response = await fetch(
+        `/api/v1/playbooks?contract_type=${contractType}&status=active`
+      );
+      if (!response.ok) throw new Error('Failed to load negotiation playbook');
+      const playbooks = await response.json();
+      if (playbooks.length === 0) {
+        container.innerHTML = `
+          <div class="playbook-empty">
+            <span class="playbook-kicker">Policy control</span>
+            <h3>No active ${escapeHtml(state.activeTrack.contract_type.toUpperCase())} playbook</h3>
+            <p>Create and approve a playbook before checking redlines. Draft positions stay editable; activated revisions become immutable assessment evidence.</p>
+          </div>
+        `;
+        return;
+      }
+
+      const playbookResponse = await fetch(`/api/v1/playbooks/${playbooks[0].id}`);
+      if (!playbookResponse.ok) throw new Error('Failed to load playbook positions');
+      const playbook = await playbookResponse.json();
+      const versions = state.activeTrack.versions || [];
+      const latestVersion = versions.reduce(
+        (latest, version) =>
+          !latest || version.version_number > latest.version_number ? version : latest,
+        null
+      );
+
+      container.innerHTML = `
+        <div class="playbook-control-card">
+          <div>
+            <span class="playbook-kicker">Approved policy · revision ${playbook.revision}</span>
+            <h3>${escapeHtml(playbook.name)}</h3>
+            <p>${escapeHtml(playbook.description || 'Organization-approved negotiation positions.')}</p>
+          </div>
+          <button id="btn-playbook-assess" class="btn-neg-primary" ${latestVersion ? '' : 'disabled'}>
+            Check latest round
+          </button>
+        </div>
+        <div class="playbook-position-grid">
+          ${playbook.clauses
+            .map(
+              (clause) => `
+                <article class="playbook-position-card">
+                  <div class="playbook-position-head">
+                    <span class="concession-category-tag">${escapeHtml(clause.clause_category)}</span>
+                    <span class="playbook-risk risk-${clause.risk_level}">${escapeHtml(clause.risk_level)}</span>
+                  </div>
+                  <h4>${escapeHtml(clause.title)}</h4>
+                  <p>${escapeHtml(clause.preferred_language)}</p>
+                  <small>${
+                    clause.source_page
+                      ? `Approved source: page ${clause.source_page}${
+                          clause.source_clause ? ` · ${escapeHtml(clause.source_clause)}` : ''
+                        }`
+                      : 'Approved source: policy-authored position'
+                  }</small>
+                </article>
+              `
+            )
+            .join('')}
+        </div>
+        <div id="playbook-assessment-results"></div>
+      `;
+
+      const assessButton = document.getElementById('btn-playbook-assess');
+      if (assessButton && latestVersion) {
+        assessButton.addEventListener('click', () =>
+          runPlaybookAssessment(playbook.id, latestVersion.id, latestVersion.version_number)
+        );
+      }
+    } catch (err) {
+      container.innerHTML = `<div class="error-msg">Error loading playbook: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  async function runPlaybookAssessment(playbookId, versionId, versionNumber) {
+    const container = document.getElementById('playbook-assessment-results');
+    const button = document.getElementById('btn-playbook-assess');
+    if (!container) return;
+    container.innerHTML = '<div class="loading-spinner">Checking changed clauses...</div>';
+    if (button) button.disabled = true;
+
+    try {
+      const response = await fetch(`/api/v1/playbooks/${playbookId}/assessments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ negotiation_version_id: versionId }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || 'Playbook assessment failed');
+      renderPlaybookAssessment(container, data, versionNumber);
+    } catch (err) {
+      container.innerHTML = `<div class="error-msg">Could not check this round: ${escapeHtml(err.message)}</div>`;
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  function renderPlaybookAssessment(container, assessment, versionNumber) {
+    const summary = assessment.summary;
+    container.innerHTML = `
+      <div class="playbook-summary-row">
+        <div><strong>${summary.total}</strong><span>changed clauses</span></div>
+        <div><strong>${summary.preferred + summary.acceptable}</strong><span>within policy</span></div>
+        <div class="needs-approval"><strong>${summary.approval_required}</strong><span>need approval</span></div>
+      </div>
+      <div class="playbook-findings-head">
+        <h3>Version ${versionNumber} findings</h3>
+        <span>Playbook revision ${assessment.playbook_revision}</span>
+      </div>
+      <div class="playbook-findings-list">
+        ${assessment.findings
+          .map(
+            (finding) => `
+              <article class="playbook-finding finding-${finding.classification}">
+                <div class="playbook-position-head">
+                  <span class="concession-category-tag">${escapeHtml(finding.clause_category)}</span>
+                  <span class="playbook-classification">${escapeHtml(
+                    finding.classification.replaceAll('_', ' ')
+                  )}</span>
+                </div>
+                <p class="playbook-reason">${escapeHtml(finding.reason)}</p>
+                <details>
+                  <summary>Read changed language and approved fallback</summary>
+                  <div class="playbook-evidence-block">
+                    <strong>Observed redline</strong>
+                    <p>${escapeHtml(finding.observed_text)}</p>
+                    ${
+                      finding.suggested_language
+                        ? `<strong>Approved language</strong><p>${escapeHtml(
+                            finding.suggested_language
+                          )}</p>`
+                        : ''
+                    }
+                    <small>Evidence: document ${escapeHtml(finding.source_document_id)} · change ${escapeHtml(
+                      finding.negotiation_change_id
+                    )}${
+                      finding.policy_source_page
+                        ? ` · policy page ${finding.policy_source_page}`
+                        : ''
+                    }</small>
+                  </div>
+                </details>
+                ${
+                  finding.approval_required
+                    ? `<div class="playbook-approval">Approval required · ${escapeHtml(
+                        finding.approval_level
+                      )}</div>`
+                    : '<div class="playbook-approved">Within approved position</div>'
+                }
+              </article>
+            `
+          )
+          .join('')}
+      </div>
+    `;
+  }
+
+  /**
+   * ──── TAB 6: AI Negotiation Summary View ────
    */
   async function loadSummaryView(trackId) {
     const container = document.getElementById('neg-tab-summary');
